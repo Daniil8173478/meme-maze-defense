@@ -2821,7 +2821,7 @@ function drawShopSkins(top, areaW, bx) {
 function drawShopBoosts(top, areaW, bx) {
   let y = top;
   text(L("permUp"), bx, y, F(16), PAL.text, "left"); y += 26 * view.ui;
-  const iw = (areaW - 10 * view.ui) / 2, ih = 92 * view.ui;
+  const iw = (areaW - 10 * view.ui) / 2, ih = 110 * view.ui;
   drawShopItem(bx, y, iw, ih, L("goldBag"), L("goldBagSub"), L("nowPlus") + Save.data.startGold, Save.data.startGold >= 120 ? L("max") : 200, "buy_gold", Save.data.coins >= 200);
   drawShopItem(bx + iw + 10 * view.ui, y, iw, ih, L("medkit"), L("medkitSub"), L("nowPlus") + Save.data.extraLives, Save.data.extraLives >= 15 ? L("max") : 250, "buy_lives", Save.data.coins >= 250);
 }
