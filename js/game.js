@@ -59,7 +59,7 @@ function skin() { return SKINS[Save.data.skin] || SKINS.classic; }
 let LANG = "ru";
 const TXT = {
   ru: {
-    subtitle: "Башни Лабиринта", play: "Играть", book: "Книга мемов", squad: "Отряд", shop: "Магазин",
+    title: "Башни против Мемов", subtitle: "Защита лабиринта", play: "Играть", book: "Книга мемов", squad: "Отряд", shop: "Магазин",
     settings: "Настройки", record: "РЕКОРД", coins: "МОНЕТЫ", sound: "Звук", music: "Музыка", lang: "Язык",
     on: "вкл", off: "выкл", back: "Назад", levelSelect: "Выбор уровня", endless: "Бесконечный режим",
     wave: "Волна", level: "Уровень", score: "Счёт", combo: "Комбо", toBattle: "В бой!", startEarlier: "Начать раньше",
@@ -85,10 +85,10 @@ const TXT = {
     exitEndless2: "Прогресс не сохранится.", youGet: "Вы заберёте:", doExit: "Выйти", stay: "Остаться",
     bookTitle: "Книга мемов", hp: "Здоровье", speed: "Скорость", ability: "Особенность", locked: "?",
     speedSlow: "медленно", speedMed: "средне", speedFast: "быстро", speedVFast: "очень быстро", langName: "Русский",
-    notEnough: "Недостаточно монет", watchAd: "Смотреть рекламу"
+    notEnough: "Недостаточно монет", watchAd: "Смотреть рекламу", upgraded: "Улучшено!", repaired: "Починено!"
   },
   en: {
-    subtitle: "Maze Towers", play: "Play", book: "Meme Book", squad: "Squad", shop: "Shop",
+    title: "Towers vs Memes", subtitle: "Maze tower defense", play: "Play", book: "Meme Book", squad: "Squad", shop: "Shop",
     settings: "Settings", record: "BEST", coins: "COINS", sound: "Sound", music: "Music", lang: "Language",
     on: "on", off: "off", back: "Back", levelSelect: "Select Level", endless: "Endless Mode",
     wave: "Wave", level: "Level", score: "Score", combo: "Combo", toBattle: "Fight!", startEarlier: "Start early",
@@ -114,7 +114,7 @@ const TXT = {
     exitEndless2: "Progress won't be saved.", youGet: "You'll get:", doExit: "Leave", stay: "Stay",
     bookTitle: "Meme Book", hp: "Health", speed: "Speed", ability: "Trait", locked: "?",
     speedSlow: "slow", speedMed: "medium", speedFast: "fast", speedVFast: "very fast", langName: "English",
-    notEnough: "Not enough coins", watchAd: "Watch ad"
+    notEnough: "Not enough coins", watchAd: "Watch ad", upgraded: "Upgraded!", repaired: "Repaired!"
   }
 };
 function L(k) { const t = TXT[LANG] && TXT[LANG][k]; return t != null ? t : (TXT.ru[k] != null ? TXT.ru[k] : k); }
@@ -853,7 +853,10 @@ function bindEvents() {
   canvas.addEventListener("pointermove", onMove, { passive: false });
   canvas.addEventListener("pointerup", onUp, { passive: false });
   canvas.addEventListener("pointercancel", () => { pointer.active = false; });
-  canvas.addEventListener("contextmenu", e => e.preventDefault());
+  // запрет контекстного меню и выделения на всей поверхности игры (п. 1.6.2.7)
+  document.addEventListener("contextmenu", e => e.preventDefault());
+  document.addEventListener("selectstart", e => e.preventDefault());
+  document.addEventListener("dragstart", e => e.preventDefault());
   window.addEventListener("resize", layout);
   window.addEventListener("orientationchange", () => setTimeout(layout, 120));
   window.addEventListener("keydown", onKey);
@@ -1070,7 +1073,7 @@ function upgradeTower() {
     Sound.play("upgrade");
     const px = cx(tw.c + 0.5), py = cy(tw.r + 0.5);
     for (let k = 0; k < 12; k++) G.particles.push(makeParticle(px, py, PAL.gold, 0.4, 2.5));
-    addText(px, py - 14 * view.ui, "Улучшено!", PAL.good, F(15), 1);
+    addText(px, py - 14 * view.ui, L("upgraded"), PAL.good, F(15), 1);
   } else { Sound.play("hit"); }
 }
 function repairCost(tw) { return Math.max(5, Math.ceil((1 - tw.hp / tw.maxHp) * TOWERS[tw.type].levels[0].cost * 0.9)); }
@@ -1082,7 +1085,7 @@ function repairTower() {
     Sound.play("upgrade");
     const px = cx(tw.c + 0.5), py = cy(tw.r + 0.5);
     for (let k = 0; k < 8; k++) G.particles.push(makeParticle(px, py, PAL.good, 0.35, 2));
-    addText(px, py - 14 * view.ui, "Починено!", PAL.good, F(14), 1);
+    addText(px, py - 14 * view.ui, L("repaired"), PAL.good, F(14), 1);
   } else { Sound.play("hit"); }
 }
 function sellTower() {
@@ -2562,11 +2565,15 @@ function drawMenu() {
   // декоративные монстрики
   const t = G.clock !== undefined ? performance.now() / 1000 : 0;
   drawMenuDecor(t);
-  // заголовок
+  // заголовок = название игры (локализованное, авто-подгонка по ширине)
   const cxp = view.w / 2, ty = view.h * 0.2;
+  const maxW = view.w * 0.9;
+  ctx.font = "bold " + F(40) + "px \"Trebuchet MS\", sans-serif";
+  const baseW = ctx.measureText(L("title")).width;
+  const ts = baseW > maxW ? Math.max(F(20), Math.floor(F(40) * maxW / baseW)) : F(40);
   ctx.save();
   ctx.shadowColor = "rgba(0,0,0,0.4)"; ctx.shadowBlur = 12 * view.ui; ctx.shadowOffsetY = 4 * view.ui;
-  text("МЕМО-ЗАЩИТА", cxp, ty, F(40), PAL.gold);
+  text(L("title"), cxp, ty, ts, PAL.gold);
   ctx.restore();
   text(L("subtitle"), cxp, ty + 38 * view.ui, F(20), PAL.good);
 
