@@ -9,17 +9,17 @@
 --------------------------
 Положите в эту папку (assets/enemies/) файлы PNG с такими именами:
 
-  grenny.png   — «Бабуля Гренни»
+  grenny.png   — «Бабка Гренда»
   huggy.png    — «Обнимака»
-  skibi.png    — «Скибиди»
-  nommy.png    — «Ням-Ням»
-  sigma.png    — «Сигма-Кот»
-  hamster.png  — «Хомяк»
-  chill.png    — «Чилл-Чувак»
-  healer.png   — «Лекарь»
+  skibi.png    — «Тубиди-Бачок»
+  nommy.png    — «Ам-Ням-Ням»
+  sigma.png    — «Сигма-Котяра»
+  hamster.png  — «Хома»
+  chill.png    — «Чиловый парень»
+  healer.png   — «Ждун»
   booster.png  — «Ускоритель»
-  breaker.png  — «Ломастер»
-  boss.png     — «МЕГА-БОСС»
+  breaker.png  — «Черемша»
+  boss.png     — «Хант Вирус»
 
 Рекомендации:
   • Прозрачный фон (PNG с альфа-каналом).

@@ -228,15 +228,15 @@ function cy(r) { return view.board.y + r * view.board.cell; }
 
 /* ---------- Данные врагов (мем-монстры, мультяшно, 0+) ---------- */
 const ENEMIES = {
-  grenny: { name: "Гренни", nameEn: "Granny", hp: 30, speed: 1.15, reward: 6, score: 10, size: 0.36, cost: 1, color: "#9b6dd6", draw: drawGrenny,
+  grenny: { name: "Бабка Гренда", nameEn: "Grandma Grenda", hp: 30, speed: 1.15, reward: 6, score: 10, size: 0.36, cost: 1, color: "#9b6dd6", draw: drawGrenny,
     bio: "Ворчливая бабуля с тростью. Медленная, но крепкая.", bioEn: "A grumpy granny with a cane. Slow but sturdy." },
-  huggy:  { name: "Хаги Ваги", nameEn: "Huggy Wuggy", hp: 18, speed: 1.95, reward: 5, score: 8, size: 0.34, cost: 1, color: "#3aa0ff", draw: drawHuggy,
+  huggy:  { name: "Обнимака", nameEn: "Hugglin", hp: 18, speed: 1.95, reward: 5, score: 8, size: 0.34, cost: 1, color: "#3aa0ff", draw: drawHuggy,
     bio: "Синий обнимашка с добродушной улыбкой. Очень быстрый.", bioEn: "A blue hugger with a friendly smile. Very fast." },
-  skibi:  { name: "Скибиди Туалет", nameEn: "Skibidi Toilet", hp: 46, speed: 1.30, reward: 8, score: 12, size: 0.36, cost: 1, color: "#e7ebf2", draw: drawSkibi,
+  skibi:  { name: "Тубиди-Бачок", nameEn: "Toobidi Bowl", hp: 46, speed: 1.30, reward: 8, score: 12, size: 0.36, cost: 1, color: "#e7ebf2", draw: drawSkibi,
     bio: "Поющая голова из унитаза. Средняя скорость.", bioEn: "A singing head in a toilet. Medium speed." },
-  nommy:  { name: "Ам Ням", nameEn: "Om Nom", hp: 82, speed: 0.98, reward: 11, score: 16, size: 0.42, cost: 1, color: "#7ad15f", draw: drawNommy,
+  nommy:  { name: "Ам-Ням-Ням", nameEn: "Nom Nom Nom", hp: 82, speed: 0.98, reward: 11, score: 16, size: 0.42, cost: 1, color: "#7ad15f", draw: drawNommy,
     bio: "Круглый обжора с огромными глазами. Много здоровья.", bioEn: "A round glutton with huge eyes. Lots of HP." },
-  sigma:  { name: "Сигма Кот", nameEn: "Sigma Cat", hp: 26, speed: 2.25, reward: 6, score: 10, size: 0.34, cost: 1, color: "#f2a44e", draw: drawSigma,
+  sigma:  { name: "Сигма-Котяра", nameEn: "Sigma Tomcat", hp: 26, speed: 2.25, reward: 6, score: 10, size: 0.34, cost: 1, color: "#f2a44e", draw: drawSigma,
     bio: "Крутой кот в тёмных очках. Мчит очень быстро.", bioEn: "A cool cat in shades. Dashes very fast." },
   hamster:{ name: "Хома", nameEn: "Hampter", hp: 15, speed: 2.4, reward: 5, score: 9, size: 0.32, cost: 1, color: "#e0a86a", draw: drawHamster,
     bio: "Милый хомяк с большими чёрными глазами. Быстрый, но слабый.", bioEn: "A cute big-eyed hamster. Fast but weak." },
