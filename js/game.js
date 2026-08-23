@@ -85,7 +85,8 @@ const TXT = {
     exitEndless2: "Прогресс не сохранится.", youGet: "Вы заберёте:", doExit: "Выйти", stay: "Остаться",
     bookTitle: "Книга мемов", hp: "Здоровье", speed: "Скорость", ability: "Особенность", locked: "?",
     speedSlow: "медленно", speedMed: "средне", speedFast: "быстро", speedVFast: "очень быстро", langName: "Русский",
-    notEnough: "Недостаточно монет", watchAd: "Смотреть рекламу", upgraded: "Улучшено!", repaired: "Починено!"
+    notEnough: "Недостаточно монет", watchAd: "Смотреть рекламу", upgraded: "Улучшено!", repaired: "Починено!",
+    needAmt: "нужно "
   },
   en: {
     title: "Towers vs Memes", subtitle: "Maze tower defense", play: "Play", book: "Meme Book", squad: "Squad", shop: "Shop",
@@ -114,10 +115,13 @@ const TXT = {
     exitEndless2: "Progress won't be saved.", youGet: "You'll get:", doExit: "Leave", stay: "Stay",
     bookTitle: "Meme Book", hp: "Health", speed: "Speed", ability: "Trait", locked: "?",
     speedSlow: "slow", speedMed: "medium", speedFast: "fast", speedVFast: "very fast", langName: "English",
-    notEnough: "Not enough coins", watchAd: "Watch ad", upgraded: "Upgraded!", repaired: "Repaired!"
+    notEnough: "Not enough coins", watchAd: "Watch ad", upgraded: "Upgraded!", repaired: "Repaired!",
+    needAmt: "need "
   }
 };
 function L(k) { const t = TXT[LANG] && TXT[LANG][k]; return t != null ? t : (TXT.ru[k] != null ? TXT.ru[k] : k); }
+/* Заголовок вкладки следует выбранному языку (название совпадает с тем, что в меню). */
+function applyDocTitle() { try { document.title = L("title"); } catch (e) {} }
 function eName(t) { const e = ENEMIES[t]; return LANG === "en" && e.nameEn ? e.nameEn : e.name; }
 function eBio(t) { const e = ENEMIES[t]; return LANG === "en" && e.bioEn ? e.bioEn : e.bio; }
 function cName(id) { const d = TOWERS[id]; return LANG === "en" && d.nameEn ? d.nameEn : d.name; }
@@ -340,7 +344,7 @@ function initSDK() {
   YaGames.init().then(sdk => {
     ysdk = sdk;
     try { if (ysdk.features && ysdk.features.LoadingAPI) ysdk.features.LoadingAPI.ready(); } catch (e) {}
-    try { const l = ysdk.environment && ysdk.environment.i18n && ysdk.environment.i18n.lang; if (l) sdkLang = String(l).slice(0, 2) === "en" ? "en" : "ru"; } catch (e) {}
+    try { const l = ysdk.environment && ysdk.environment.i18n && ysdk.environment.i18n.lang; if (l) sdkLang = String(l).slice(0, 2).toLowerCase() === "ru" ? "ru" : "en"; } catch (e) {}
     startGame();
   }).catch(() => startGame());
 }
@@ -352,6 +356,7 @@ function startGame() {
   Save.load();
   if (!Save.data.langChosen && sdkLang) { Save.data.lang = sdkLang; Save.write(); }
   LANG = Save.data.lang === "en" ? "en" : "ru";
+  applyDocTitle();
   Assets.preload();
   Sound.setSfx(Save.data.sfx);
   Sound.setMusicEnabled(Save.data.music);
@@ -515,6 +520,7 @@ function update(dt) {
 
   updateAuras(dt);
   updateEnemies(dt);
+  if (G.state !== "playing") return; // проигрыш внутри updateEnemies — кадр дальше не досчитываем
   updateTowers(dt);
   updateProjectiles(dt);
   updateParticles(dt);
@@ -769,6 +775,19 @@ function killEnemy(e, x, y) {
 }
 function comboMult() { return 1 + Math.min(G.combo, 20) * 0.15; }
 
+/* Смахивает монстров с поля: награда за рекламу «продолжить». Без этого
+   недобитая волна съедает возвращённые жизни за пару секунд. */
+function clearBoardEnemies() {
+  for (const e of G.enemies) {
+    const p = posAt(G.path, e.dist), x = cx(p.c), y = cy(p.r);
+    G.effects.push({ kind: "explosion", x, y, life: 0.35, max: 0.35, r: view.board.cell * 0.6, color: e.base.color });
+    for (let k = 0; k < 6; k++) G.particles.push(makeParticle(x, y, e.base.color, 0.4, 3));
+  }
+  G.enemies.length = 0;
+  G.projectiles.length = 0;
+  G.combo = 0; G.comboTimer = 0;
+}
+
 function makeParticle(x, y, color, life, spd) {
   const a = Math.random() * TAU;
   return { x, y, vx: Math.cos(a) * spd * view.board.cell * 0.3, vy: Math.sin(a) * spd * view.board.cell * 0.3 - view.board.cell * 0.4, life, max: life, color, size: rnd(2, 4) * view.ui };
@@ -837,6 +856,7 @@ function gameOver() {
   const coins = G.mode === "endless" ? (G.endlessCoins + Math.floor(G.score / 40)) : (Math.floor(G.score / 30) + G.waveIndex * 4);
   G.pendingCoins = Math.max(0, coins);
   Save.data.coins += G.pendingCoins;
+  G.endlessCoins = 0; // уже выплачены: иначе после «продолжить» начислим их второй раз
   if (G.score > Save.data.highScore) Save.data.highScore = G.score;
   if (G.mode === "endless" && G.waveIndex + 1 > Save.data.endlessBest) Save.data.endlessBest = G.waveIndex + 1;
   Save.write();
@@ -939,7 +959,7 @@ function boardTap(x, y) {
         for (let k = 0; k < 8; k++) G.particles.push(makeParticle(px, py, TOWERS[G.selType].color, 0.3, 2));
         if (!Save.data.tutorial) { Save.data.tutorial = true; Save.write(); G.tutorT = 0; }
       } else {
-        addAmount(cx(c.c + 0.5), cy(c.r + 0.5), "нужно ", cost, "gold", PAL.danger, F(14), 0.9);
+        addAmount(cx(c.c + 0.5), cy(c.r + 0.5), L("needAmt"), cost, "gold", PAL.danger, F(14), 0.9);
         Sound.play("hit");
       }
     }
@@ -1000,7 +1020,7 @@ function handleTap(id, b) {
       if (id === "back") G.state = "menu";
       else if (id === "sfx") { Save.data.sfx = !Save.data.sfx; Sound.setSfx(Save.data.sfx); Save.write(); }
       else if (id === "music") { Save.data.music = !Save.data.music; Sound.setMusicEnabled(Save.data.music); if (Save.data.music) Sound.startMusic(); Save.write(); }
-      else if (id === "lang_ru" || id === "lang_en") { LANG = id === "lang_en" ? "en" : "ru"; Save.data.lang = LANG; Save.data.langChosen = true; Save.write(); }
+      else if (id === "lang_ru" || id === "lang_en") { LANG = id === "lang_en" ? "en" : "ru"; Save.data.lang = LANG; Save.data.langChosen = true; Save.write(); applyDocTitle(); }
       break;
     case "book":
       if (G.bookMon) { if (id === "mon_close" || id === "back") G.bookMon = null; }
@@ -1055,7 +1075,7 @@ function handleTap(id, b) {
       break;
     case "gameover":
       if (id === "continue" && !G.continueUsed) {
-        showRewarded(() => { G.continueUsed = true; G.lives = Math.max(10, Math.floor(G.maxLives * 0.5)); G.state = "playing"; lastT = performance.now(); Sound.play("reward"); });
+        showRewarded(() => { G.continueUsed = true; G.lives = Math.max(10, Math.floor(G.maxLives * 0.5)); clearBoardEnemies(); G.state = "playing"; lastT = performance.now(); Sound.play("reward"); });
       } else if (id === "x2" && !G.x2Used) {
         showRewarded(() => { Save.data.coins += G.pendingCoins; Save.write(); G.x2Used = true; Sound.play("reward"); });
       } else if (id === "restart") { const m = G.mode, n = G.level; showInterstitial(() => m === "level" ? startLevel(n) : startEndless()); }
