@@ -118,6 +118,9 @@ const Sound = (function () {
   function scheduler() {
     if (!musicOn || !ctx) return;
     const step = 0.30;
+    // вкладку могли притормозить: если таймер сильно отстал, не проигрываем
+    // накопившиеся такты залпом, а подхватываем петлю с текущего момента
+    if (mNext < ctx.currentTime - 0.5) mNext = ctx.currentTime + 0.05;
     while (mNext < ctx.currentTime + 0.15) {
       musicStep(mNext);
       mNext += step;

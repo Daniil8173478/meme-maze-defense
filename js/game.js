@@ -140,6 +140,22 @@ const Save = {
   load() { try { const s = localStorage.getItem(SKEY); if (s) Object.assign(this.data, JSON.parse(s)); } catch (e) {} this.normalize(); },
   normalize() {
     const d = this.data;
+    // сохранение могло прийти от старой версии или испорченным — приводим типы,
+    // иначе строка вместо числа даёт "50088" вместо 588, а строка вместо массива роняет магазин
+    const num = (v, def) => { const n = Math.floor(+v); return isFinite(n) ? n : def; };
+    d.coins = Math.max(0, num(d.coins, 0));
+    d.highScore = Math.max(0, num(d.highScore, 0));
+    d.endlessBest = Math.max(0, num(d.endlessBest, 0));
+    d.unlocked = clamp(num(d.unlocked, 1), 1, 10);
+    d.startGold = clamp(num(d.startGold, 0), 0, 120);
+    d.extraLives = clamp(num(d.extraLives, 0), 0, 15);
+    d.sfx = !!d.sfx; d.music = !!d.music; d.tutorial = !!d.tutorial; d.langChosen = !!d.langChosen;
+    d.lang = d.lang === "en" ? "en" : "ru";
+    if (!d.stars || typeof d.stars !== "object" || Array.isArray(d.stars)) d.stars = {};
+    if (!Array.isArray(d.skins)) d.skins = ["classic"];
+    d.skins = d.skins.filter(k => SKINS[k]);
+    if (d.skins.indexOf("classic") < 0) d.skins.unshift("classic");
+    if (!SKINS[d.skin] || d.skins.indexOf(d.skin) < 0) d.skin = "classic";
     if (!Array.isArray(d.owned) || !d.owned.length) d.owned = DEFAULT_OWNED.slice();
     DEFAULT_OWNED.forEach(id => { if (d.owned.indexOf(id) < 0) d.owned.push(id); });
     d.owned = d.owned.filter(id => TOWERS[id]);
@@ -318,23 +334,25 @@ function pauseForAd(on) {
   if (on) Sound.stopMusic();
   else { if (Save.data.music) Sound.startMusic(); lastT = performance.now(); }
 }
+/* SDK может прислать onClose/onError не один раз — доводим показ до конца ровно однажды. */
 function showInterstitial(after) {
   if (ysdk && ysdk.adv && ysdk.adv.showFullscreenAdv) {
+    let done = false;
+    const finish = () => { if (done) return; done = true; pauseForAd(false); if (after) after(); };
     pauseForAd(true);
-    ysdk.adv.showFullscreenAdv({ callbacks: {
-      onClose: () => { pauseForAd(false); if (after) after(); },
-      onError: () => { pauseForAd(false); if (after) after(); }
-    }});
+    ysdk.adv.showFullscreenAdv({ callbacks: { onClose: finish, onError: finish } });
   } else { if (after) after(); }
 }
+/* Награда выдаётся ровно один раз: повторный onClose от SDK не должен её удваивать. */
 function showRewarded(onReward) {
   if (ysdk && ysdk.adv && ysdk.adv.showRewardedVideo) {
-    let ok = false;
+    let ok = false, done = false;
+    const finish = () => { if (done) return; done = true; pauseForAd(false); if (ok && onReward) onReward(); };
     pauseForAd(true);
     ysdk.adv.showRewardedVideo({ callbacks: {
       onRewarded: () => { ok = true; },
-      onClose: () => { pauseForAd(false); if (ok && onReward) onReward(); },
-      onError: () => { pauseForAd(false); }
+      onClose: finish,
+      onError: finish
     }});
   } else { if (onReward) onReward(); } // локальный тест — награду выдаём сразу
 }
@@ -474,7 +492,8 @@ function spawnEnemy(type) {
     type, base, hpMax: hp, hp,
     dist: 0, baseSpeed: base.speed * sc.spd, speed: base.speed * sc.spd,
     slowT: 0, slowF: 0, poisonT: 0, poisonDps: 0, boostT: 0, boostMult: 1, healT: 0,
-    size: base.size, phase: Math.random() * TAU
+    size: base.size, phase: Math.random() * TAU,
+    _x: 0, _y: 0
   });
 }
 
@@ -518,14 +537,21 @@ function update(dt) {
     if (G.betweenTimer <= 0) { G.betweenTimer = 0; startNextWave(); }
   }
 
+  cacheEnemyPos();
   updateAuras(dt);
   updateEnemies(dt);
   if (G.state !== "playing") return; // проигрыш внутри updateEnemies — кадр дальше не досчитываем
+  cacheEnemyPos();
   updateTowers(dt);
   updateProjectiles(dt);
   updateParticles(dt);
 }
 
+/* Экранные позиции монстров считаем один раз за такт: их читают башни, ауры,
+   снаряды и взрывы, а раньше каждая башня пересчитывала путь для каждого монстра. */
+function cacheEnemyPos() {
+  for (const e of G.enemies) { const p = posAt(G.path, e.dist); e._x = cx(p.c); e._y = cy(p.r); }
+}
 function endlessWaveCoins(n) { return 4 + Math.floor(n * 1.2); }
 
 function onWaveCleared() {
@@ -550,7 +576,7 @@ function updateAuras(dt) {
   for (const e of G.enemies) {
     const base = e.base;
     if (!base.heal && !base.boost && !base.attack) continue;
-    const p = posAt(G.path, e.dist), ex = cx(p.c), ey = cy(p.r);
+    const ex = e._x, ey = e._y;
     if (base.heal) {
       e.healT -= dt;
       if (e.healT <= 0) {
@@ -558,8 +584,7 @@ function updateAuras(dt) {
         let healed = false;
         for (const o of G.enemies) {
           if (o === e || o.hp >= o.hpMax) continue;
-          const po = posAt(G.path, o.dist);
-          if (Math.hypot(cx(po.c) - ex, cy(po.r) - ey) <= base.heal.radius * cell) {
+          if (Math.hypot(o._x - ex, o._y - ey) <= base.heal.radius * cell) {
             o.hp = Math.min(o.hpMax, o.hp + base.heal.amount * hpScale); healed = true;
           }
         }
@@ -569,8 +594,7 @@ function updateAuras(dt) {
     if (base.boost) {
       for (const o of G.enemies) {
         if (o === e || o.base.boost) continue;
-        const po = posAt(G.path, o.dist);
-        if (Math.hypot(cx(po.c) - ex, cy(po.r) - ey) <= base.boost.radius * cell) { o.boostT = 0.3; o.boostMult = base.boost.mult; }
+        if (Math.hypot(o._x - ex, o._y - ey) <= base.boost.radius * cell) { o.boostT = 0.3; o.boostMult = base.boost.mult; }
       }
     }
     if (base.attack) {
@@ -601,7 +625,7 @@ function updateEnemies(dt) {
     const e = G.enemies[i];
     if (e.poisonT > 0) {
       e.poisonT -= dt; e.hp -= e.poisonDps * dt;
-      if (e.hp <= 0) { const pp = posAt(path, e.dist); killEnemy(e, cx(pp.c), cy(pp.r)); continue; }
+      if (e.hp <= 0) { killEnemy(e, e._x, e._y); continue; }
     }
     if (e.slowT > 0) { e.slowT -= dt; }
     let eff = e.slowT > 0 ? e.baseSpeed * (1 - e.slowF) : e.baseSpeed;
@@ -630,9 +654,7 @@ function updateTowers(dt) {
     const rangePx = st.range * cell;
     const inRange = [];
     for (const e of G.enemies) {
-      const p = posAt(G.path, e.dist);
-      const ex = cx(p.c), ey = cy(p.r);
-      if (Math.hypot(ex - tx, ey - ty) <= rangePx) { e._x = ex; e._y = ey; inRange.push(e); }
+      if (Math.hypot(e._x - tx, e._y - ty) <= rangePx) inRange.push(e);
     }
     if (!inRange.length) continue;
     inRange.sort((a, b) => b.dist - a.dist);
@@ -695,16 +717,14 @@ function fireChain(tw, st, def, tx, ty, primary) {
   let cur = primary, px = tx, py = ty, dmg = base.dmg;
   for (let j = 0; j <= def.chain.count; j++) {
     if (!cur || G.enemies.indexOf(cur) < 0) break;
-    const pos = posAt(G.path, cur.dist);
-    const ex = cx(pos.c), ey = cy(pos.r);
+    const ex = cur._x, ey = cur._y;
     G.effects.push({ kind: "beam", x1: px, y1: py, x2: ex, y2: ey, life: 0.14, max: 0.14, color: def.color });
     applyPayload(cur, Object.assign({}, base, { dmg }), ex, ey);
     hit.add(cur); px = ex; py = ey; dmg *= def.chain.falloff;
     let next = null, nd = 1e9;
     for (const e of G.enemies) {
       if (hit.has(e)) continue;
-      const p2 = posAt(G.path, e.dist);
-      const nx = cx(p2.c), ny = cy(p2.r), d = Math.hypot(nx - ex, ny - ey);
+      const nx = e._x, ny = e._y, d = Math.hypot(nx - ex, ny - ey);
       if (d <= def.chain.range * cell && d < nd) { nd = d; next = e; }
     }
     cur = next;
@@ -716,8 +736,7 @@ function updateProjectiles(dt) {
     const p = G.projectiles[i];
     let tx, ty;
     if (p.target && p.target.hp > 0 && G.enemies.indexOf(p.target) >= 0) {
-      const pos = posAt(G.path, p.target.dist);
-      tx = cx(pos.c); ty = cy(pos.r); p.lx = tx; p.ly = ty;
+      tx = p.target._x; ty = p.target._y; p.lx = tx; p.ly = ty;
     } else { tx = p.lx; ty = p.ly; }
     const dx = tx - p.x, dy = ty - p.y;
     const d = Math.hypot(dx, dy);
@@ -735,8 +754,7 @@ function onProjectileHit(p, x, y) {
   if (p.payload.splash) {
     const sp = p.payload.splash;
     for (const e of G.enemies.slice()) {
-      const pos = posAt(G.path, e.dist);
-      const ex = cx(pos.c), ey = cy(pos.r);
+      const ex = e._x, ey = e._y;
       if (Math.hypot(ex - x, ey - y) <= sp) applyPayload(e, p.payload, ex, ey);
     }
     G.effects.push({ kind: "explosion", x, y, life: 0.35, max: 0.35, r: sp, color: p.color });
@@ -1275,6 +1293,22 @@ function textShadow(str, x, y, size, color, align, baseline) {
   ctx.textAlign = align || "center"; ctx.textBaseline = baseline || "middle";
   ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillText(str, x + 2, y + 2);
   ctx.fillStyle = color; ctx.fillText(str, x, y);
+}
+/* Ширина строки при заданном кегле. */
+function textW(str, size) {
+  ctx.font = "bold " + size + "px \"Trebuchet MS\", \"Segoe UI\", sans-serif";
+  return ctx.measureText(str).width;
+}
+/* Строка, ужатая под maxW: сперва мельче кегль, затем обрезка многоточием. */
+function textClip(str, x, y, maxW, size, color, align) {
+  let s = size;
+  while (s > 8 && textW(str, s) > maxW) s--;
+  let out = str;
+  if (textW(out, s) > maxW) {
+    while (out.length > 1 && textW(out + "…", s) > maxW) out = out.slice(0, -1);
+    out += "…";
+  }
+  text(out, x, y, s, color, align || "left");
 }
 function btn(id, x, y, w, h, label, opt) {
   opt = opt || {};
@@ -2447,8 +2481,11 @@ function drawDock() {
     ctx.strokeStyle = sel ? def.color : RARITY[def.rarity].color; ctx.lineWidth = (sel ? 3 : 2) * view.ui; ctx.stroke();
     ctx.globalAlpha = afford ? 1 : 0.5;
     drawTowerIcon(ctx, x + bw * 0.22, y + bh * 0.42, Math.min(bw, bh) * 0.42, type);
-    text(cName(type), x + bw * 0.44, y + bh * 0.32, F(13), PAL.text, "left");
-    text(cDesc(type), x + bw * 0.44, y + bh * 0.55, F(10), PAL.dim, "left");
+    const tx = x + bw * 0.44, maxTW = bw * 0.56 - 8 * view.ui;
+    // в узкой ячейке описание не помещается — оставляем только название и цену
+    const showDesc = textW(cDesc(type), F(10)) <= maxTW;
+    textClip(cName(type), tx, y + bh * (showDesc ? 0.32 : 0.40), maxTW, F(13), PAL.text);
+    if (showDesc) textClip(cDesc(type), tx, y + bh * 0.55, maxTW, F(10), PAL.dim);
     drawCoin(ctx, x + bw * 0.47, y + bh * 0.78, 7 * view.ui);
     text(String(cost), x + bw * 0.55, y + bh * 0.78, F(13), afford ? PAL.gold : PAL.danger, "left");
     ctx.globalAlpha = 1;
