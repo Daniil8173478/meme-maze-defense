@@ -278,24 +278,24 @@ const TOWERS = {
   /* --- Мифические --- */
   tesla: { name: "Тесла", nameEn: "Tesla", desc: "Молния бьёт по цепочке", descEn: "Chain lightning", rarity: "mythic", color: "#6ad1ff", proj: "chain",
     chain: { count: 2, range: 1.7, falloff: 0.7 },
-    levels: [{ cost: 120, dmg: 20, range: 2.6, rate: 1.0 }, { cost: 120, dmg: 32, range: 2.8, rate: 1.2 }, { cost: 180, dmg: 52, range: 3.0, rate: 1.4 }] },
+    levels: [{ cost: 95, dmg: 20, range: 2.6, rate: 1.0 }, { cost: 90, dmg: 32, range: 2.8, rate: 1.2 }, { cost: 135, dmg: 52, range: 3.0, rate: 1.4 }] },
   venom: { name: "Ядоплюй", nameEn: "Venom", desc: "Отравляет врагов", descEn: "Poisons enemies", rarity: "mythic", color: "#7ed957", proj: "pea",
     poison: { dur: 2.5 }, dpsByLvl: [10, 16, 24],
-    levels: [{ cost: 110, dmg: 6, range: 2.4, rate: 1.4 }, { cost: 110, dmg: 9, range: 2.6, rate: 1.6 }, { cost: 170, dmg: 14, range: 2.8, rate: 1.8 }] },
+    levels: [{ cost: 85, dmg: 6, range: 2.4, rate: 1.4 }, { cost: 85, dmg: 9, range: 2.6, rate: 1.6 }, { cost: 130, dmg: 14, range: 2.8, rate: 1.8 }] },
   blizzard: { name: "Вьюга", nameEn: "Blizzard", desc: "Взрыв со льдом и замедлением", descEn: "Icy blast + slow", rarity: "mythic", color: "#8fd3ff", proj: "bomb", splash: 1.3,
     slowOnSplash: { f: 0.5, dur: 1.6 },
-    levels: [{ cost: 130, dmg: 14, range: 2.2, rate: 0.9 }, { cost: 120, dmg: 22, range: 2.4, rate: 1.0 }, { cost: 190, dmg: 34, range: 2.6, rate: 1.2 }] },
+    levels: [{ cost: 95, dmg: 14, range: 2.2, rate: 0.9 }, { cost: 90, dmg: 22, range: 2.4, rate: 1.0 }, { cost: 145, dmg: 34, range: 2.6, rate: 1.2 }] },
   twin: { name: "Двустволка", nameEn: "Twin", desc: "Бьёт по 2 целям сразу", descEn: "Hits 2 targets at once", rarity: "mythic", color: "#ff8f6b", proj: "pea", targets: 2,
-    levels: [{ cost: 120, dmg: 12, range: 2.5, rate: 1.5 }, { cost: 120, dmg: 19, range: 2.7, rate: 1.7 }, { cost: 180, dmg: 30, range: 2.9, rate: 2.0 }] },
+    levels: [{ cost: 95, dmg: 12, range: 2.5, rate: 1.5 }, { cost: 90, dmg: 19, range: 2.7, rate: 1.7 }, { cost: 135, dmg: 30, range: 2.9, rate: 2.0 }] },
 
   /* --- Легендарные --- */
   railgun: { name: "Рельса", nameEn: "Railgun", desc: "Сверхмощный дальний луч", descEn: "Super long-range beam", rarity: "legend", color: "#cdd6ff", proj: "beam",
-    levels: [{ cost: 220, dmg: 90, range: 5.0, rate: 0.6 }, { cost: 200, dmg: 150, range: 5.4, rate: 0.7 }, { cost: 300, dmg: 240, range: 5.8, rate: 0.85 }] },
+    levels: [{ cost: 165, dmg: 90, range: 5.0, rate: 0.6 }, { cost: 150, dmg: 150, range: 5.4, rate: 0.7 }, { cost: 225, dmg: 240, range: 5.8, rate: 0.85 }] },
   inferno: { name: "Инферно", nameEn: "Inferno", desc: "Огромный взрыв и поджог", descEn: "Huge blast + burn", rarity: "legend", color: "#ff6b3d", proj: "bomb", splash: 1.6,
     poison: { dur: 2.0 }, dpsByLvl: [18, 28, 42],
-    levels: [{ cost: 230, dmg: 40, range: 2.4, rate: 0.8 }, { cost: 210, dmg: 62, range: 2.6, rate: 0.9 }, { cost: 320, dmg: 95, range: 2.8, rate: 1.05 }] },
+    levels: [{ cost: 160, dmg: 40, range: 2.4, rate: 0.8 }, { cost: 145, dmg: 62, range: 2.6, rate: 0.9 }, { cost: 225, dmg: 95, range: 2.8, rate: 1.05 }] },
   prism: { name: "Призма", nameEn: "Prism", desc: "Луч по 3 целям", descEn: "Hits 3 targets", rarity: "legend", color: "#d17bff", proj: "pea", targets: 3,
-    levels: [{ cost: 240, dmg: 26, range: 3.0, rate: 1.6 }, { cost: 220, dmg: 40, range: 3.2, rate: 1.8 }, { cost: 330, dmg: 62, range: 3.4, rate: 2.1 }] }
+    levels: [{ cost: 170, dmg: 26, range: 3.0, rate: 1.6 }, { cost: 155, dmg: 40, range: 3.2, rate: 1.8 }, { cost: 230, dmg: 62, range: 3.4, rate: 2.1 }] }
 };
 const CANNON_IDS = Object.keys(TOWERS);
 const DEFAULT_OWNED = ["slinger", "frost", "boomer", "sniper"];
@@ -454,10 +454,19 @@ function startEndless() {
   resetRun();
   G.state = "playing";
 }
+/* Стартовое золото. Отряд целиком из дорогих пушек иначе не может поставить
+   вообще ничего: 150 золота против 165 за рельсу — поле остаётся пустым,
+   убивать некому, золота не появится. Гарантируем две башни любого отряда. */
+function startingGold() {
+  const base = 150 + Save.data.startGold;
+  const costs = Save.data.squad.map(id => TOWERS[id].levels[0].cost);
+  const need = costs.length ? Math.min.apply(null, costs) * 2 : 0;
+  return Math.max(base, need);
+}
 function resetRun() {
   G.path = makePath(G.cfg);
   G.towers = []; G.enemies = []; G.projectiles = []; G.particles = []; G.texts = []; G.effects = [];
-  G.gold = 150 + Save.data.startGold;
+  G.gold = startingGold();
   G.maxLives = 25 + Save.data.extraLives;
   G.lives = G.maxLives;
   G.score = 0; G.combo = 0; G.comboTimer = 0;
