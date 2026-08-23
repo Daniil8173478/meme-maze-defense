@@ -231,7 +231,7 @@ const ENEMIES = {
   grenny: { name: "Гренни", nameEn: "Granny", hp: 30, speed: 1.15, reward: 6, score: 10, size: 0.36, cost: 1, color: "#9b6dd6", draw: drawGrenny,
     bio: "Ворчливая бабуля с тростью. Медленная, но крепкая.", bioEn: "A grumpy granny with a cane. Slow but sturdy." },
   huggy:  { name: "Хаги Ваги", nameEn: "Huggy Wuggy", hp: 18, speed: 1.95, reward: 5, score: 8, size: 0.34, cost: 1, color: "#3aa0ff", draw: drawHuggy,
-    bio: "Синий обнимашка с огромной зубастой улыбкой. Очень быстрый.", bioEn: "A blue hugger with a huge toothy grin. Very fast." },
+    bio: "Синий обнимашка с добродушной улыбкой. Очень быстрый.", bioEn: "A blue hugger with a friendly smile. Very fast." },
   skibi:  { name: "Скибиди Туалет", nameEn: "Skibidi Toilet", hp: 46, speed: 1.30, reward: 8, score: 12, size: 0.36, cost: 1, color: "#e7ebf2", draw: drawSkibi,
     bio: "Поющая голова из унитаза. Средняя скорость.", bioEn: "A singing head in a toilet. Medium speed." },
   nommy:  { name: "Ам Ням", nameEn: "Om Nom", hp: 82, speed: 0.98, reward: 11, score: 16, size: 0.42, cost: 1, color: "#7ad15f", draw: drawNommy,
@@ -357,12 +357,22 @@ function showRewarded(onReward) {
   } else { if (onReward) onReward(); } // локальный тест — награду выдаём сразу
 }
 let sdkLang = null;
+/* Язык площадки: основной источник — SDK, запасной — параметр ?lang= в адресе,
+   который Яндекс Игры подставляют кадру с игрой (п. 2.14). */
+function normLang(v) { return String(v || "").slice(0, 2).toLowerCase() === "ru" ? "ru" : "en"; }
+function urlLang() {
+  try {
+    const m = (location.search || "").match(/[?&]lang=([A-Za-z-]+)/);
+    return m ? normLang(m[1]) : null;
+  } catch (e) { return null; }
+}
 function initSDK() {
+  if (sdkLang == null) sdkLang = urlLang();
   if (typeof YaGames === "undefined") { startGame(); return; }
   YaGames.init().then(sdk => {
     ysdk = sdk;
     try { if (ysdk.features && ysdk.features.LoadingAPI) ysdk.features.LoadingAPI.ready(); } catch (e) {}
-    try { const l = ysdk.environment && ysdk.environment.i18n && ysdk.environment.i18n.lang; if (l) sdkLang = String(l).slice(0, 2).toLowerCase() === "ru" ? "ru" : "en"; } catch (e) {}
+    try { const l = ysdk.environment && ysdk.environment.i18n && ysdk.environment.i18n.lang; if (l) sdkLang = normLang(l); } catch (e) {}
     startGame();
   }).catch(() => startGame());
 }
@@ -1772,19 +1782,24 @@ function drawHuggy(g, x, y, r, ph) {
   g.strokeStyle = shade(C, 0.7); g.lineWidth = r * 0.07;
   g.beginPath(); g.arc(x - r * 0.26, ey, r * 0.28, Math.PI * 1.12, Math.PI * 1.9); g.stroke();
   g.beginPath(); g.arc(x + r * 0.26, ey, r * 0.28, Math.PI * 1.12, Math.PI * 1.9); g.stroke();
-  // ОГРОМНАЯ пасть во всё «лицо»
+  // закрытый рот: мягкая улыбка вместо распахнутой зубастой пасти (п. 2.7 — не пугать малышей)
   const my = y + r * 0.14;
-  g.save();
-  g.fillStyle = "#6f1018";
-  g.beginPath(); g.ellipse(x, my, r * 0.62, r * 0.46, 0, 0, TAU); g.fill();
-  g.clip();
-  g.fillStyle = "#e64a68"; g.beginPath(); g.ellipse(x, my + r * 0.34, r * 0.34, r * 0.2, 0, 0, TAU); g.fill();
-  teethRow(g, x - r * 0.62, x + r * 0.62, my - r * 0.42, r * 0.32, 9, true);
-  teethRow(g, x - r * 0.62, x + r * 0.62, my + r * 0.46, r * 0.32, 9, false);
-  g.restore();
-  // ярко-красные губы
-  g.strokeStyle = "#ff3b52"; g.lineWidth = Math.max(2.4, r * 0.13);
-  g.beginPath(); g.ellipse(x, my, r * 0.62, r * 0.46, 0, 0, TAU); g.stroke();
+  g.lineCap = "round";
+  g.strokeStyle = shade(C, 0.4); g.lineWidth = Math.max(2.2, r * 0.1);
+  g.beginPath();
+  g.moveTo(x - r * 0.34, my - r * 0.06);
+  g.quadraticCurveTo(x, my + r * 0.24, x + r * 0.34, my - r * 0.06);
+  g.stroke();
+  // тонкая тёплая линия губ поверх — рот читается, но остаётся закрытым
+  g.strokeStyle = "#e07b8e"; g.lineWidth = Math.max(1.2, r * 0.045);
+  g.beginPath();
+  g.moveTo(x - r * 0.29, my - r * 0.05);
+  g.quadraticCurveTo(x, my + r * 0.19, x + r * 0.29, my - r * 0.05);
+  g.stroke();
+  // щёчки — добавляют добродушия
+  g.fillStyle = "rgba(255,138,160,0.28)";
+  g.beginPath(); g.ellipse(x - r * 0.44, my - r * 0.02, r * 0.13, r * 0.09, 0, 0, TAU); g.fill();
+  g.beginPath(); g.ellipse(x + r * 0.44, my - r * 0.02, r * 0.13, r * 0.09, 0, 0, TAU); g.fill();
 }
 function drawSkibi(g, x, y, r, ph) {
   const porc = "#eef1f7", bl = blinkOf(ph);
