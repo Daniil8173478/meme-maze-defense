@@ -2643,23 +2643,25 @@ function menuBadge(x, y, r, label, value, color, icon) {
   }
 }
 function drawMenu() {
-  // декоративные монстрики
   const t = G.clock !== undefined ? performance.now() / 1000 : 0;
-  drawMenuDecor(t);
+  const cxp = view.w / 2, ty = view.h * 0.20;
+  // колонка кнопок и нижние бейджи считаются заранее: между ними живут монстрики
+  const bw = Math.min(300 * view.ui, view.w * 0.82), bx = cxp - bw / 2;
+  const bh = 52 * view.ui, gap = 12 * view.ui, hw = (bw - gap) / 2;
+  const btnTop = view.h * 0.32, btnBottom = btnTop + bh * 3 + gap * 2;
+  const badgeY = view.h * 0.86;
   // заголовок = название игры (единое для всех языков, авто-подгонка по ширине)
-  const cxp = view.w / 2, ty = view.h * 0.2;
   const maxW = view.w * 0.9;
   ctx.font = "bold " + F(40) + "px \"Trebuchet MS\", sans-serif";
   const baseW = ctx.measureText(L("title")).width;
   const ts = baseW > maxW ? Math.max(F(20), Math.floor(F(40) * maxW / baseW)) : F(40);
+  drawMenuDecor(t, { btnBottom: btnBottom, badgeY: badgeY, btnLeft: bx, btnRight: bx + bw, titleBottom: ty + ts * 0.62 });
   ctx.save();
   ctx.shadowColor = "rgba(0,0,0,0.4)"; ctx.shadowBlur = 12 * view.ui; ctx.shadowOffsetY = 4 * view.ui;
   text(L("title"), cxp, ty, ts, PAL.gold);
   ctx.restore();
 
-  const bw = Math.min(300 * view.ui, view.w * 0.82), bx = cxp - bw / 2;
-  let y = view.h * 0.38, bh = 52 * view.ui, gap = 12 * view.ui;
-  const hw = (bw - gap) / 2;
+  let y = btnTop;
   btn("play", bx, y, bw, bh, L("play"), { color: PAL.good, fs: F(22) }); y += bh + gap;
   btn("book", bx, y, bw, bh, L("book"), { color: PAL.blue, textColor: PAL.text, fs: F(18) }); y += bh + gap;
   btn("squad", bx, y, hw, bh, L("squad"), { color: PAL.panel2, textColor: PAL.text, fs: F(17) });
@@ -2672,8 +2674,8 @@ function drawMenu() {
 
   // бейджи рекорд/монеты
   const badgeW = 120 * view.ui;
-  menuBadge(cxp - badgeW - 8 * view.ui, view.h * 0.85, badgeW, L("record"), String(Save.data.highScore), PAL.gold);
-  menuBadge(cxp + 8 * view.ui, view.h * 0.85, badgeW, L("coins"), String(Save.data.coins), PAL.gem, "gem");
+  menuBadge(cxp - badgeW - 8 * view.ui, badgeY, badgeW, L("record"), String(Save.data.highScore), PAL.gold);
+  menuBadge(cxp + 8 * view.ui, badgeY, badgeW, L("coins"), String(Save.data.coins), PAL.gem, "gem");
 }
 function drawGear(x, y, r) {
   ctx.save();
@@ -2691,15 +2693,41 @@ function drawGear(x, y, r) {
   ctx.fillStyle = PAL.panel2; ctx.beginPath(); ctx.arc(0, 0, r * 0.48, 0, TAU); ctx.fill();
   ctx.restore();
 }
-function drawMenuDecor(t) {
-  const s = Math.min(view.w, view.h) * 0.09;
-  // самые популярные мемы на заставке
-  const list = ["huggy", "skibi", "chill", "hamster", "grenny"];
-  for (let i = 0; i < list.length; i++) {
-    const x = (view.w) * ((i + 0.5) / list.length);
-    const y = view.h * 0.66 + Math.sin(t * 2 + i) * 8 * view.ui;
+/* Монстрики-заставка не должны лезть на кнопки и бейджи. Обычно они стоят
+   рядком в свободной полосе под кнопками; если экран низкий (телефон лёжа),
+   полосы не хватает — тогда они расходятся по бокам от колонки кнопок.
+   Размеры и качание подрезаются по фактическому свободному месту. */
+const MENU_DECOR = ["huggy", "skibi", "chill", "hamster", "grenny"];
+function drawMenuDecor(t, box) {
+  const pad = 10 * view.ui;
+  const cap = Math.min(view.w, view.h) * 0.105;
+  // вариант 1 — рядок под кнопками
+  const n = view.w < 560 ? 3 : MENU_DECOR.length;
+  const pick = n === 3 ? [0, 2, 4] : [0, 1, 2, 3, 4];
+  const band = box.badgeY - box.btnBottom - pad * 2;
+  const rowS = Math.min(view.w / (n * 2.7), band / 2.5, cap);
+  // вариант 2 — по две штуки слева и справа от колонки кнопок
+  const colH = box.badgeY - box.titleBottom - pad * 2;
+  const sideS = Math.min((box.btnLeft - pad * 2) / 2.4, colH / 5, cap);
+  if (sideS > rowS * 1.25) {
+    const slot = colH / 2, midY = box.titleBottom + pad + slot;
+    const wob = Math.min(5 * view.ui, Math.max(0, slot / 2 - sideS * 1.18));
+    const xL = box.btnLeft / 2, xR = (view.w + box.btnRight) / 2;
+    const spots = [[xL, midY - slot / 2], [xL, midY + slot / 2], [xR, midY - slot / 2], [xR, midY + slot / 2]];
+    const side = [0, 1, 3, 4];
+    for (let i = 0; i < spots.length; i++) {
+      ctx.globalAlpha = 0.9;
+      drawCreature(MENU_DECOR[side[i]], spots[i][0], spots[i][1] + Math.sin(t * 2 + i) * wob, sideS, t + i);
+      ctx.globalAlpha = 1;
+    }
+    return;
+  }
+  if (rowS < 10) return;
+  const midY = box.btnBottom + pad + band / 2;
+  const wob = Math.min(6 * view.ui, Math.max(0, band / 2 - rowS * 1.18));
+  for (let i = 0; i < n; i++) {
     ctx.globalAlpha = 0.9;
-    drawCreature(list[i], x, y, s, t + i);
+    drawCreature(MENU_DECOR[pick[i]], view.w * ((i + 0.5) / n), midY + Math.sin(t * 2 + i) * wob, rowS, t + i);
     ctx.globalAlpha = 1;
   }
 }
