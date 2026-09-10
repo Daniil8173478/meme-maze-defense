@@ -710,10 +710,11 @@ function fireTower(tw, st, def, tx, ty, inRange) {
     const shots = Math.min(nTargets, inRange.length);
     for (let i = 0; i < shots; i++) {
       const e = inRange[i];
-      G.effects.push({ kind: "beam", x1: tx, y1: ty, x2: e._x, y2: e._y, life: 0.12, max: 0.12, color: def.color });
+      G.effects.push({ kind: "beam", x1: tx, y1: ty, x2: e._x, y2: e._y, life: 0.16, max: 0.16, color: def.color });
       applyPayload(e, makePayload(tw, st, def), e._x, e._y);
+      for (let k = 0; k < 3; k++) G.particles.push(makeParticle(e._x, e._y, def.color, rnd(0.15, 0.3), rnd(2, 4), "spark"));
     }
-    G.effects.push({ kind: "flash", x: tx, y: ty, life: 0.1, max: 0.1, r: view.board.cell * 0.4, color: def.color });
+    G.effects.push({ kind: "flash", x: tx, y: ty, life: 0.12, max: 0.12, r: view.board.cell * 0.34, color: def.color, ang: Math.atan2(inRange[0]._y - ty, inRange[0]._x - tx) });
     Sound.play("snipe");
     return;
   }
@@ -727,6 +728,16 @@ function fireTower(tw, st, def, tx, ty, inRange) {
       lx: e._x, ly: e._y
     });
   }
+  if (shots > 0) {
+    G.effects.push({
+      kind: "flash", x: tx, y: ty, life: 0.09, max: 0.09,
+      r: view.board.cell * (def.proj === "bomb" ? 0.3 : 0.2), color: def.color,
+      ang: Math.atan2(inRange[0]._y - ty, inRange[0]._x - tx)
+    });
+    if (def.proj === "bomb") {
+      for (let k = 0; k < 2; k++) G.particles.push(makeParticle(tx, ty, "#9aa0ad", rnd(0.35, 0.6), rnd(0.8, 1.4), "smoke"));
+    }
+  }
   Sound.play(def.proj === "shard" ? "frost" : "shoot");
 }
 function fireChain(tw, st, def, tx, ty, primary) {
@@ -737,7 +748,7 @@ function fireChain(tw, st, def, tx, ty, primary) {
   for (let j = 0; j <= def.chain.count; j++) {
     if (!cur || G.enemies.indexOf(cur) < 0) break;
     const ex = cur._x, ey = cur._y;
-    G.effects.push({ kind: "beam", x1: px, y1: py, x2: ex, y2: ey, life: 0.14, max: 0.14, color: def.color });
+    G.effects.push({ kind: "bolt", pts: boltPoints(px, py, ex, ey, cell * 0.16), life: 0.18, max: 0.18, color: def.color });
     applyPayload(cur, Object.assign({}, base, { dmg }), ex, ey);
     hit.add(cur); px = ex; py = ey; dmg *= def.chain.falloff;
     let next = null, nd = 1e9;
@@ -760,6 +771,8 @@ function updateProjectiles(dt) {
     const dx = tx - p.x, dy = ty - p.y;
     const d = Math.hypot(dx, dy);
     const step = p.speed * dt;
+    p.ang = Math.atan2(dy, dx);
+    p.t = (p.t || 0) + dt;
     if (d <= step + 2) {
       // попадание
       onProjectileHit(p, tx, ty);
@@ -776,14 +789,17 @@ function onProjectileHit(p, x, y) {
       const ex = e._x, ey = e._y;
       if (Math.hypot(ex - x, ey - y) <= sp) applyPayload(e, p.payload, ex, ey);
     }
-    G.effects.push({ kind: "explosion", x, y, life: 0.35, max: 0.35, r: sp, color: p.color });
+    G.effects.push({ kind: "explosion", x, y, life: 0.4, max: 0.4, r: sp, color: p.color, seed: Math.random() * TAU });
+    for (let k = 0; k < 7; k++) G.particles.push(makeParticle(x, y, "#ffd07a", rnd(0.25, 0.5), rnd(4, 7), "spark"));
+    for (let k = 0; k < 4; k++) G.particles.push(makeParticle(x, y, "#8d8f9c", rnd(0.5, 0.9), rnd(1, 2), "smoke"));
     G.shake = Math.min(1, G.shake + 0.15);
     Sound.play("boom");
   } else {
     if (p.target && p.target.hp > 0 && G.enemies.indexOf(p.target) >= 0) {
       applyPayload(p.target, p.payload, x, y);
     }
-    for (let k = 0; k < 4; k++) G.particles.push(makeParticle(x, y, p.color, 0.3, 2.2));
+    G.effects.push({ kind: "spark", x, y, life: 0.16, max: 0.16, r: view.board.cell * 0.22, color: p.color, seed: Math.random() * TAU });
+    for (let k = 0; k < 4; k++) G.particles.push(makeParticle(x, y, p.color, rnd(0.2, 0.35), rnd(2, 3.6), "spark"));
     Sound.play("hit");
   }
 }
@@ -808,7 +824,12 @@ function killEnemy(e, x, y) {
   addAmount(x, y - 12 * view.ui, "+", reward, "gold", PAL.gold, F(16), 1.0);
   const n = e.base.boss ? 22 : 10;
   for (let k = 0; k < n; k++) G.particles.push(makeParticle(x, y, e.base.color, rnd(0.35, 0.7), rnd(2, 4.5)));
-  if (e.base.boss) { G.shake = Math.min(1.2, G.shake + 0.6); }
+  for (let k = 0; k < (e.base.boss ? 10 : 4); k++) G.particles.push(makeParticle(x, y, "#fff3c4", rnd(0.3, 0.55), rnd(3, 5), "star"));
+  G.effects.push({ kind: "pulse", x, y, life: 0.3, max: 0.3, r: view.board.cell * (e.base.boss ? 1.4 : 0.75), color: e.base.color });
+  if (e.base.boss) {
+    G.shake = Math.min(1.2, G.shake + 0.6);
+    G.effects.push({ kind: "explosion", x, y, life: 0.5, max: 0.5, r: view.board.cell * 1.5, color: e.base.color, seed: Math.random() * TAU });
+  }
 }
 function comboMult() { return 1 + Math.min(G.combo, 20) * 0.15; }
 
@@ -825,15 +846,29 @@ function clearBoardEnemies() {
   G.combo = 0; G.comboTimer = 0;
 }
 
-function makeParticle(x, y, color, life, spd) {
+function makeParticle(x, y, color, life, spd, kind) {
   const a = Math.random() * TAU;
-  return { x, y, vx: Math.cos(a) * spd * view.board.cell * 0.3, vy: Math.sin(a) * spd * view.board.cell * 0.3 - view.board.cell * 0.4, life, max: life, color, size: rnd(2, 4) * view.ui };
+  const p = {
+    x, y, kind: kind || "dot",
+    vx: Math.cos(a) * spd * view.board.cell * 0.3,
+    vy: Math.sin(a) * spd * view.board.cell * 0.3 - view.board.cell * 0.4,
+    life, max: life, color, size: rnd(2, 4) * view.ui
+  };
+  if (kind === "spark") { p.size = rnd(1.4, 2.6) * view.ui; p.vx *= 1.6; p.vy *= 1.6; }
+  if (kind === "star") { p.size = rnd(2.2, 3.6) * view.ui; p.spin = rnd(-9, 9); }
+  if (kind === "smoke") {
+    p.size = rnd(3, 6) * view.ui;
+    p.vx *= 0.3; p.vy = -Math.abs(p.vy) * 0.35 - view.board.cell * 0.15;
+  }
+  return p;
 }
 function updateParticles(dt) {
   for (let i = G.particles.length - 1; i >= 0; i--) {
     const p = G.particles[i];
     p.life -= dt;
-    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += view.board.cell * 3 * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.kind === "smoke") { p.vx *= 0.94; p.vy *= 0.94; }
+    else { p.vy += view.board.cell * 3 * dt; p.vx *= 0.99; }
     if (p.life <= 0) G.particles.splice(i, 1);
   }
   for (let i = G.texts.length - 1; i >= 0; i--) {
@@ -2941,53 +2976,212 @@ function drawBreaker(g, x, y, r, ph) {
 }
 
 /* ---------- Снаряды / эффекты / частицы ---------- */
+/* Хвост снаряда: короткий сужающийся след по направлению полёта. */
+function projTrail(x, y, ang, len, w, color) {
+  const tx = x - Math.cos(ang) * len, ty = y - Math.sin(ang) * len;
+  const gr = ctx.createLinearGradient(x, y, tx, ty);
+  gr.addColorStop(0, color);
+  gr.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.strokeStyle = gr; ctx.lineWidth = w; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(tx, ty); ctx.stroke();
+}
 function drawProjectiles() {
+  const cell = view.board.cell;
   for (const p of G.projectiles) {
+    const ang = p.ang || 0;
     if (p.type === "pea") {
-      ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, view.board.cell * 0.09, 0, TAU); ctx.fill();
+      const r = cell * 0.095;
+      projTrail(p.x, p.y, ang, cell * 0.5, r * 1.5, shade(p.color, 0.9));
+      ctx.fillStyle = radial(ctx, p.x - r * 0.3, p.y - r * 0.35, r * 0.1, p.x, p.y, r * 1.2,
+        [[0, shade(p.color, 1.5)], [0.6, p.color], [1, shade(p.color, 0.7)]]);
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.fill();
       ctx.strokeStyle = PAL.outline; ctx.lineWidth = 1.5 * view.ui; ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.beginPath(); ctx.arc(p.x - r * 0.32, p.y - r * 0.34, r * 0.28, 0, TAU); ctx.fill();
     } else if (p.type === "shard") {
-      const s = view.board.cell * 0.11;
+      const s = cell * 0.115;
+      projTrail(p.x, p.y, ang, cell * 0.45, s * 1.1, "rgba(150,225,255,0.75)");
+      // морозная пыль позади
+      for (let k = 1; k <= 2; k++) {
+        const d = cell * 0.22 * k, a = ang + Math.sin((p.t || 0) * 14 + k) * 0.5;
+        ctx.fillStyle = "rgba(205,239,251," + (0.4 / k).toFixed(2) + ")";
+        ctx.beginPath(); ctx.arc(p.x - Math.cos(a) * d, p.y - Math.sin(a) * d, s * (0.32 / k), 0, TAU); ctx.fill();
+      }
       ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(G.clock * 6);
-      ctx.fillStyle = "#cdeffb"; ctx.beginPath();
+      ctx.fillStyle = radial(ctx, -s * 0.2, -s * 0.3, s * 0.05, 0, 0, s * 1.1, [[0, "#ffffff"], [1, "#a9dcf2"]]);
+      ctx.beginPath();
       ctx.moveTo(0, -s); ctx.lineTo(s * 0.7, 0); ctx.lineTo(0, s); ctx.lineTo(-s * 0.7, 0); ctx.closePath();
-      ctx.fill(); ctx.strokeStyle = "#4dc9e6"; ctx.lineWidth = 1.5 * view.ui; ctx.stroke(); ctx.restore();
+      ctx.fill(); ctx.strokeStyle = "#4dc9e6"; ctx.lineWidth = 1.5 * view.ui; ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 1 * view.ui;
+      ctx.beginPath(); ctx.moveTo(0, -s * 0.75); ctx.lineTo(0, s * 0.75); ctx.stroke();
+      ctx.restore();
     } else if (p.type === "bomb") {
-      ctx.fillStyle = "#2a2e3d"; ctx.beginPath(); ctx.arc(p.x, p.y, view.board.cell * 0.12, 0, TAU); ctx.fill();
-      ctx.fillStyle = PAL.gold; ctx.beginPath(); ctx.arc(p.x, p.y - view.board.cell * 0.12, view.board.cell * 0.04 * (1 + Math.sin(G.clock * 30) * 0.3), 0, TAU); ctx.fill();
+      const r = cell * 0.125;
+      // дымный след
+      for (let k = 1; k <= 3; k++) {
+        const d = cell * 0.2 * k;
+        ctx.fillStyle = "rgba(120,120,130," + (0.22 / k).toFixed(2) + ")";
+        ctx.beginPath(); ctx.arc(p.x - Math.cos(ang) * d, p.y - Math.sin(ang) * d, r * (0.5 + k * 0.14), 0, TAU); ctx.fill();
+      }
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate((p.t || 0) * 5);
+      ctx.fillStyle = radial(ctx, -r * 0.3, -r * 0.35, r * 0.1, 0, 0, r * 1.25, [[0, "#5a6076"], [0.6, "#343a4b"], [1, "#1d2130"]]);
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = PAL.outline; ctx.lineWidth = 1.4 * view.ui; ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.beginPath(); ctx.ellipse(-r * 0.33, -r * 0.36, r * 0.26, r * 0.16, -0.6, 0, TAU); ctx.fill();
+      // фитиль
+      ctx.strokeStyle = "#8a6a45"; ctx.lineWidth = Math.max(1, r * 0.16); ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(0, -r * 0.9); ctx.quadraticCurveTo(r * 0.3, -r * 1.3, r * 0.12, -r * 1.55); ctx.stroke();
+      ctx.restore();
+      // искра на фитиле
+      const fx = p.x + Math.cos((p.t || 0) * 5 - Math.PI / 2 + 0.4) * r * 1.5;
+      const fy = p.y + Math.sin((p.t || 0) * 5 - Math.PI / 2 + 0.4) * r * 1.5;
+      const fl = 1 + Math.sin(G.clock * 30) * 0.3;
+      ctx.fillStyle = "rgba(255,190,80,0.5)";
+      ctx.beginPath(); ctx.arc(fx, fy, r * 0.42 * fl, 0, TAU); ctx.fill();
+      ctx.fillStyle = "#fff0b8";
+      ctx.beginPath(); ctx.arc(fx, fy, r * 0.18 * fl, 0, TAU); ctx.fill();
     }
   }
 }
+/* Ломаная молнии — считается один раз при выстреле, чтобы разряд не дёргался. */
+function boltPoints(x1, y1, x2, y2, amp) {
+  const d = Math.hypot(x2 - x1, y2 - y1) || 1;
+  const n = clamp(Math.round(d / (amp * 1.6)), 3, 10);
+  const nx = -(y2 - y1) / d, ny = (x2 - x1) / d;
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, edge = Math.sin(t * Math.PI);
+    const o = (i === 0 || i === n) ? 0 : rnd(-amp, amp) * edge;
+    pts.push({ x: lerp(x1, x2, t) + nx * o, y: lerp(y1, y2, t) + ny * o });
+  }
+  return pts;
+}
 function drawEffects() {
+  const cell = view.board.cell;
   for (const ef of G.effects) {
-    const k = ef.life / ef.max;
+    const k = clamp(ef.life / ef.max, 0, 1);
     if (ef.kind === "beam") {
-      ctx.strokeStyle = ef.color; ctx.globalAlpha = k; ctx.lineWidth = 4 * view.ui * k + 1;
-      ctx.beginPath(); ctx.moveTo(ef.x1, ef.y1); ctx.lineTo(ef.x2, ef.y2); ctx.stroke(); ctx.globalAlpha = 1;
+      // три прохода: широкое свечение, тело луча, белая сердцевина
+      ctx.lineCap = "round";
+      ctx.globalAlpha = k * 0.28; ctx.strokeStyle = ef.color; ctx.lineWidth = 10 * view.ui * k + 2;
+      ctx.beginPath(); ctx.moveTo(ef.x1, ef.y1); ctx.lineTo(ef.x2, ef.y2); ctx.stroke();
+      ctx.globalAlpha = k * 0.9; ctx.lineWidth = 4 * view.ui * k + 1;
+      ctx.beginPath(); ctx.moveTo(ef.x1, ef.y1); ctx.lineTo(ef.x2, ef.y2); ctx.stroke();
+      ctx.globalAlpha = k; ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 1.6 * view.ui * k + 0.6;
+      ctx.beginPath(); ctx.moveTo(ef.x1, ef.y1); ctx.lineTo(ef.x2, ef.y2); ctx.stroke();
+      // вспышка в точке попадания
+      ctx.globalAlpha = k * 0.8; ctx.fillStyle = ef.color;
+      ctx.beginPath(); ctx.arc(ef.x2, ef.y2, cell * 0.16 * k, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+    } else if (ef.kind === "bolt") {
+      const pts = ef.pts;
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      for (const pass of [[0.3, 9, ef.color], [0.95, 3.2, ef.color], [1, 1.4, "#ffffff"]]) {
+        ctx.globalAlpha = k * pass[0]; ctx.strokeStyle = pass[2]; ctx.lineWidth = pass[1] * view.ui * (0.5 + k * 0.5);
+        ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = k * 0.85; ctx.fillStyle = "#eaf9ff";
+      ctx.beginPath(); ctx.arc(pts[pts.length - 1].x, pts[pts.length - 1].y, cell * 0.13 * k, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
     } else if (ef.kind === "explosion") {
-      ctx.globalAlpha = k;
-      ctx.fillStyle = "rgba(255,180,90,0.4)";
-      ctx.beginPath(); ctx.arc(ef.x, ef.y, ef.r * (1 - k + 0.3), 0, TAU); ctx.fill();
-      ctx.strokeStyle = "#ffd166"; ctx.lineWidth = 3 * view.ui;
-      ctx.beginPath(); ctx.arc(ef.x, ef.y, ef.r * (1.1 - k), 0, TAU); ctx.stroke();
+      const grow = 1.15 - k * 0.85;
+      // огненный шар
+      const rr2 = ef.r * grow;
+      const fire = radial(ctx, ef.x, ef.y, rr2 * 0.1, ef.x, ef.y, rr2,
+        [[0, "rgba(255,255,235," + (k * 0.95).toFixed(3) + ")"],
+         [0.35, "rgba(255,205,110," + (k * 0.8).toFixed(3) + ")"],
+         [0.7, "rgba(240,120,60," + (k * 0.45).toFixed(3) + ")"],
+         [1, "rgba(180,70,40,0)"]]);
+      ctx.fillStyle = fire;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, rr2, 0, TAU); ctx.fill();
+      // ударная волна
+      ctx.globalAlpha = k * k;
+      ctx.strokeStyle = "#ffe9a8"; ctx.lineWidth = (3.5 * view.ui) * k + 0.5;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, ef.r * (1.35 - k * 0.9), 0, TAU); ctx.stroke();
+      // осколки
+      ctx.strokeStyle = "rgba(255,214,140," + (k * 0.9).toFixed(3) + ")";
+      ctx.lineWidth = 2 * view.ui; ctx.lineCap = "round";
+      for (let i = 0; i < 7; i++) {
+        const a = (ef.seed || 0) + i * TAU / 7;
+        const r0 = ef.r * (0.5 + (1 - k) * 0.7), r1 = r0 + ef.r * 0.22 * k;
+        ctx.beginPath();
+        ctx.moveTo(ef.x + Math.cos(a) * r0, ef.y + Math.sin(a) * r0);
+        ctx.lineTo(ef.x + Math.cos(a) * r1, ef.y + Math.sin(a) * r1);
+        ctx.stroke();
+      }
       ctx.globalAlpha = 1;
     } else if (ef.kind === "flash") {
-      ctx.globalAlpha = k; ctx.fillStyle = ef.color;
-      ctx.beginPath(); ctx.arc(ef.x, ef.y, ef.r * k, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
+      // дульная вспышка: ядро плюс короткие лучи по направлению выстрела
+      const a0 = ef.ang || 0, rr2 = ef.r * (0.6 + k * 0.6);
+      ctx.globalAlpha = k;
+      ctx.fillStyle = radial(ctx, ef.x, ef.y, 0, ef.x, ef.y, rr2,
+        [[0, "rgba(255,255,240,0.95)"], [0.4, ef.color], [1, "rgba(255,255,255,0)"]]);
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, rr2, 0, TAU); ctx.fill();
+      ctx.strokeStyle = "rgba(255,248,215," + (k * 0.85).toFixed(3) + ")";
+      ctx.lineWidth = 2 * view.ui; ctx.lineCap = "round";
+      for (let i = -1; i <= 1; i++) {
+        const a = a0 + i * 0.45;
+        ctx.beginPath(); ctx.moveTo(ef.x + Math.cos(a) * rr2 * 0.5, ef.y + Math.sin(a) * rr2 * 0.5);
+        ctx.lineTo(ef.x + Math.cos(a) * rr2 * (1.5 - Math.abs(i) * 0.4), ef.y + Math.sin(a) * rr2 * (1.5 - Math.abs(i) * 0.4));
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    } else if (ef.kind === "spark") {
+      // короткая звёздочка попадания
+      const rr2 = ef.r * (1.4 - k * 0.5);
+      ctx.globalAlpha = k;
+      ctx.strokeStyle = ef.color; ctx.lineWidth = 2 * view.ui * k + 0.5; ctx.lineCap = "round";
+      for (let i = 0; i < 5; i++) {
+        const a = (ef.seed || 0) + i * TAU / 5;
+        ctx.beginPath();
+        ctx.moveTo(ef.x + Math.cos(a) * rr2 * 0.3, ef.y + Math.sin(a) * rr2 * 0.3);
+        ctx.lineTo(ef.x + Math.cos(a) * rr2, ef.y + Math.sin(a) * rr2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(255,255,255," + (k * 0.9).toFixed(3) + ")";
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, rr2 * 0.22, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
     } else if (ef.kind === "pulse") {
-      ctx.globalAlpha = k * 0.7; ctx.strokeStyle = ef.color; ctx.lineWidth = 3 * view.ui;
-      ctx.beginPath(); ctx.arc(ef.x, ef.y, ef.r * (1.1 - k), 0, TAU); ctx.stroke();
-      ctx.globalAlpha = k * 0.25; ctx.fillStyle = ef.color;
-      ctx.beginPath(); ctx.arc(ef.x, ef.y, ef.r * (1.1 - k), 0, TAU); ctx.fill();
+      const rr2 = ef.r * (1.1 - k);
+      ctx.fillStyle = radial(ctx, ef.x, ef.y, rr2 * 0.55, ef.x, ef.y, rr2,
+        [[0, "rgba(255,255,255,0)"], [1, ef.color]]);
+      ctx.globalAlpha = k * 0.5;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, rr2, 0, TAU); ctx.fill();
+      ctx.globalAlpha = k * 0.8; ctx.strokeStyle = ef.color; ctx.lineWidth = 2.5 * view.ui;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, rr2, 0, TAU); ctx.stroke();
       ctx.globalAlpha = 1;
     }
   }
 }
 function drawParticles() {
   for (const p of G.particles) {
-    ctx.globalAlpha = clamp(p.life / p.max, 0, 1);
-    ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, TAU); ctx.fill();
+    const k = clamp(p.life / p.max, 0, 1);
+    ctx.globalAlpha = k;
+    if (p.kind === "spark") {
+      // искра тянется по своей скорости и гаснет
+      const v = Math.hypot(p.vx, p.vy) || 1, l = Math.min(p.size * 5, v * 0.045);
+      ctx.strokeStyle = p.color; ctx.lineWidth = p.size * 0.8; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx / v * l, p.y - p.vy / v * l); ctx.stroke();
+    } else if (p.kind === "smoke") {
+      ctx.globalAlpha = k * 0.5;
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1.6 - k), 0, TAU); ctx.fill();
+    } else if (p.kind === "star") {
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate((p.spin || 0) * (p.max - p.life));
+      ctx.fillStyle = p.color; ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4, rr2 = (i % 2 ? 0.42 : 1) * p.size * 1.7;
+        ctx.lineTo(Math.cos(a) * rr2, Math.sin(a) * rr2);
+      }
+      ctx.closePath(); ctx.fill(); ctx.restore();
+    } else {
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (0.6 + k * 0.4), 0, TAU); ctx.fill();
+    }
   }
   ctx.globalAlpha = 1;
 }
