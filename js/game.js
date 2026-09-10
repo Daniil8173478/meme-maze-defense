@@ -1690,6 +1690,40 @@ function furBlob(g, cxp, cyp, rx, ry, n, ph) {
   g.closePath();
 }
 
+/* --- мелкая детализация: шерсть, блики, крапинки, строчка --- */
+function dHash(i, j) { let h = Math.imul(i, 374761393) + Math.imul(j, 668265263) ^ 0x5bf03635; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+/* клочки шерсти вдоль дуги контура — тело перестаёт быть гладкой каплей */
+function furTufts(g, x, y, rx, ry, a0, a1, n, len, color, lw, seed) {
+  g.strokeStyle = color; g.lineWidth = lw; g.lineCap = "round";
+  for (let i = 0; i < n; i++) {
+    const t = a0 + (a1 - a0) * ((i + 0.5) / n);
+    const px = x + Math.cos(t) * rx, py = y + Math.sin(t) * ry;
+    const l = len * (0.65 + dHash(seed || 0, i) * 0.7), a = t + (dHash(i, seed || 0) - 0.5) * 0.5;
+    g.beginPath(); g.moveTo(px, py); g.lineTo(px + Math.cos(a) * l, py + Math.sin(a) * l); g.stroke();
+  }
+}
+/* мягкий блик по форме — объём без лишних градиентов */
+function gloss(g, x, y, rx, ry, a, rot) {
+  g.save(); g.translate(x, y); if (rot) g.rotate(rot);
+  g.fillStyle = "rgba(255,255,255," + (a == null ? 0.18 : a) + ")";
+  g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, TAU); g.fill(); g.restore();
+}
+/* крапинки: веснушки, пятнышки шерсти, фактура ткани (детерминированные) */
+function speckles(g, x, y, rx, ry, n, seed, color, sz) {
+  g.fillStyle = color;
+  for (let i = 0; i < n; i++) {
+    const a = dHash(seed, i) * TAU, d = Math.sqrt(dHash(i, seed + 11));
+    g.beginPath(); g.arc(x + Math.cos(a) * rx * d, y + Math.sin(a) * ry * d, sz * (0.55 + dHash(i, seed + 5) * 0.9), 0, TAU); g.fill();
+  }
+}
+/* строчка-шов: игрушечность и линии кроя одежды */
+function stitch(g, x0, y0, x1, y1, n, color, lw) {
+  g.strokeStyle = color; g.lineWidth = lw; g.lineCap = "round";
+  for (let i = 0; i < n; i++) {
+    const t0 = i / n, t1 = t0 + 0.55 / n;
+    g.beginPath(); g.moveTo(lerp(x0, x1, t0), lerp(y0, y1, t0)); g.lineTo(lerp(x0, x1, t1), lerp(y0, y1, t1)); g.stroke();
+  }
+}
 function drawGrenny(g, x, y, r, ph) {
   const gown = "#4d7d8c", skin = "#e7d1ba", bl = blinkOf(ph);
   g.lineJoin = "round"; g.lineCap = "round";
@@ -1751,6 +1785,34 @@ function drawGrenny(g, x, y, r, ph) {
   // румянец
   g.fillStyle = "rgba(220,130,130,0.3)";
   g.beginPath(); g.arc(x - r * 0.3, y - r * 0.04, r * 0.09, 0, TAU); g.arc(x + r * 0.3, y - r * 0.04, r * 0.09, 0, TAU); g.fill();
+  // вязаный узор на сорочке
+  speckles(g, x, y + r * 0.62, r * 0.34, r * 0.34, 7, 3, "rgba(255,255,255,0.16)", r * 0.035);
+  g.strokeStyle = "rgba(255,255,255,0.14)"; g.lineWidth = Math.max(1, r * 0.022);
+  g.beginPath(); g.moveTo(x - r * 0.42, y + r * 0.86); g.quadraticCurveTo(x, y + r * 0.94, x + r * 0.42, y + r * 0.86); g.stroke();
+  // тапочки
+  g.fillStyle = "#b8646f"; g.strokeStyle = "#8d4551"; g.lineWidth = Math.max(1.2, r * 0.035);
+  for (const s2 of [-1, 1]) { g.beginPath(); g.ellipse(x + s2 * r * 0.3, y + r * 1.14, r * 0.21, r * 0.09, 0, 0, TAU); g.fill(); g.stroke(); }
+  // очки на кончике носа
+  const gy = y - r * 0.26, gr = r * 0.17;
+  g.fillStyle = "rgba(226,240,255,0.22)";
+  g.beginPath(); g.arc(x - r * 0.19, gy, gr, 0, TAU); g.fill();
+  g.beginPath(); g.arc(x + r * 0.19, gy, gr, 0, TAU); g.fill();
+  g.strokeStyle = "#c9a227"; g.lineWidth = Math.max(1.2, r * 0.035);
+  g.beginPath(); g.arc(x - r * 0.19, gy, gr, 0, TAU); g.stroke();
+  g.beginPath(); g.arc(x + r * 0.19, gy, gr, 0, TAU); g.stroke();
+  g.beginPath(); g.moveTo(x - r * 0.02, gy - r * 0.02); g.quadraticCurveTo(x, gy - r * 0.09, x + r * 0.02, gy - r * 0.02); g.stroke();
+  g.beginPath(); g.moveTo(x - r * 0.36, gy - r * 0.03); g.lineTo(x - r * 0.5, gy - r * 0.1);
+  g.moveTo(x + r * 0.36, gy - r * 0.03); g.lineTo(x + r * 0.5, gy - r * 0.1); g.stroke();
+  g.strokeStyle = "rgba(255,255,255,0.6)"; g.lineWidth = Math.max(1, r * 0.025);
+  g.beginPath(); g.moveTo(x - r * 0.28, gy - r * 0.07); g.lineTo(x - r * 0.2, gy + r * 0.03);
+  g.moveTo(x + r * 0.1, gy - r * 0.07); g.lineTo(x + r * 0.18, gy + r * 0.03); g.stroke();
+  // отдельные седые пряди
+  g.strokeStyle = "rgba(255,255,255,0.75)"; g.lineWidth = Math.max(1, r * 0.025);
+  for (let i = 0; i < 5; i++) {
+    const a = Math.PI * (1.12 + i * 0.19);
+    g.beginPath(); g.moveTo(x + Math.cos(a) * r * 0.42, y - r * 0.36 + Math.sin(a) * r * 0.4);
+    g.lineTo(x + Math.cos(a) * r * 0.72, y - r * 0.36 + Math.sin(a) * r * 0.7); g.stroke();
+  }
 }
 function drawHuggy(g, x, y, r, ph) {
   const C = "#2b82ff", bl = blinkOf(ph);
@@ -1800,8 +1862,37 @@ function drawHuggy(g, x, y, r, ph) {
   g.fillStyle = "rgba(255,138,160,0.28)";
   g.beginPath(); g.ellipse(x - r * 0.44, my - r * 0.02, r * 0.13, r * 0.09, 0, 0, TAU); g.fill();
   g.beginPath(); g.ellipse(x + r * 0.44, my - r * 0.02, r * 0.13, r * 0.09, 0, 0, TAU); g.fill();
+  const CC = "#2b82ff";
+  // светлое пузико со строчкой — плюшевая игрушка, а не гладкая капля
+  g.fillStyle = "rgba(255,255,255,0.14)";
+  g.beginPath(); g.ellipse(x, y + r * 0.5, r * 0.36, r * 0.32, 0, 0, TAU); g.fill();
+  g.strokeStyle = "rgba(12,40,80,0.3)"; g.lineWidth = Math.max(1, r * 0.025);
+  g.setLineDash([r * 0.07, r * 0.06]);
+  g.beginPath(); g.ellipse(x, y + r * 0.5, r * 0.36, r * 0.32, 0, 0, TAU); g.stroke();
+  g.setLineDash([]);
+  // ворс по контуру тела
+  furTufts(g, x, y - r * 0.12, r * 0.6, r * 1.0, Math.PI * 1.05, Math.PI * 1.95, 10, r * 0.05, shade(CC, 0.78), Math.max(1, r * 0.028), 2);
+  furTufts(g, x, y - r * 0.12, r * 0.6, r * 1.0, Math.PI * 0.12, Math.PI * 0.88, 8, r * 0.045, shade(CC, 0.6), Math.max(1, r * 0.025), 5);
+  // коготки на ладонях
+  const swayC = Math.sin(ph * 2) * r * 0.14;
+  g.strokeStyle = "#eaf2ff"; g.lineWidth = Math.max(1, r * 0.03);
+  for (const hx of [x - r * 0.82 + swayC, x + r * 0.82 - swayC]) {
+    for (let k = -1; k <= 1; k++) { g.beginPath(); g.moveTo(hx + k * r * 0.1, y + r * 1.16); g.lineTo(hx + k * r * 0.11, y + r * 1.23); g.stroke(); }
+  }
+  // блик на макушке
+  gloss(g, x - r * 0.28, y - r * 0.86, r * 0.2, r * 0.11, 0.22, -0.5);
 }
 function drawSkibi(g, x, y, r, ph) {
+  // бачок за чашей — рисуется первым, поэтому уходит на задний план
+  const tank = "#e8ecf3";
+  g.lineJoin = "round";
+  g.fillStyle = radial(g, x - r * 0.3, y - r * 0.5, r * 0.08, x, y - r * 0.3, r * 1.1, [[0, "#ffffff"], [1, shade(tank, 0.82)]]);
+  g.strokeStyle = shade(tank, 0.58); g.lineWidth = Math.max(1.5, r * 0.055);
+  rr(g, x - r * 0.6, y - r * 0.42, r * 1.2, r * 0.56, r * 0.1); g.fill(); g.stroke();
+  g.fillStyle = shade(tank, 0.92);
+  rr(g, x - r * 0.64, y - r * 0.5, r * 1.28, r * 0.12, r * 0.05); g.fill(); g.stroke();
+  // кнопка смыва
+  g.fillStyle = "#b9c2d0"; g.beginPath(); g.arc(x + r * 0.42, y - r * 0.44, r * 0.07, 0, TAU); g.fill(); g.stroke();
   const porc = "#eef1f7", bl = blinkOf(ph);
   g.lineJoin = "round";
   g.strokeStyle = shade(porc, 0.6); g.lineWidth = Math.max(1.6, r * 0.06);
@@ -1855,6 +1946,23 @@ function drawSkibi(g, x, y, r, ph) {
     g.fillRect(bxn, byn - r * 0.26 * nn[2], r * 0.035, r * 0.26 * nn[2]);
     g.beginPath(); g.ellipse(bxn - r * 0.02, byn, r * 0.07 * nn[2], r * 0.05 * nn[2], -0.4, 0, TAU); g.fill();
   }
+  // блик на фарфоре и тень под ободом
+  gloss(g, x - r * 0.42, y + r * 0.02, r * 0.12, r * 0.2, 0.5, -0.25);
+  gloss(g, x - r * 0.26, y + r * 0.62, r * 0.08, r * 0.22, 0.28, -0.1);
+  g.strokeStyle = "rgba(90,105,130,0.22)"; g.lineWidth = Math.max(1, r * 0.03);
+  g.beginPath(); g.moveTo(x - r * 0.36, y + r * 0.5); g.quadraticCurveTo(x, y + r * 0.6, x + r * 0.36, y + r * 0.5); g.stroke();
+  // воротник рубашки под головой
+  const hy2 = y - r * 0.64;
+  g.fillStyle = "#cfd8e6"; g.strokeStyle = "#9aa6b8"; g.lineWidth = Math.max(1.1, r * 0.03);
+  g.beginPath(); g.moveTo(x - r * 0.3, hy2 + r * 0.3); g.lineTo(x - r * 0.08, hy2 + r * 0.5); g.lineTo(x - r * 0.02, hy2 + r * 0.3); g.closePath(); g.fill(); g.stroke();
+  g.beginPath(); g.moveTo(x + r * 0.3, hy2 + r * 0.3); g.lineTo(x + r * 0.08, hy2 + r * 0.5); g.lineTo(x + r * 0.02, hy2 + r * 0.3); g.closePath(); g.fill(); g.stroke();
+  // прядки волос
+  g.strokeStyle = "#241b16"; g.lineWidth = Math.max(1, r * 0.028);
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI * (1.15 + i * 0.22);
+    g.beginPath(); g.moveTo(x + Math.cos(a) * r * 0.24, hy2 - r * 0.14 + Math.sin(a) * r * 0.24);
+    g.lineTo(x + Math.cos(a) * r * 0.44, hy2 - r * 0.14 + Math.sin(a) * r * 0.46); g.stroke();
+  }
 }
 function drawNommy(g, x, y, r, ph) {
   const C = "#5fc247";
@@ -1903,6 +2011,22 @@ function drawNommy(g, x, y, r, ph) {
   g.strokeStyle = shade(C, 0.45); g.lineWidth = Math.max(1.5, r * 0.055);
   g.beginPath(); g.moveTo(x - r * 0.62, ey - r * 0.28); g.lineTo(x - r * 0.36, ey - r * 0.4);
   g.moveTo(x + r * 0.62, ey - r * 0.28); g.lineTo(x + r * 0.36, ey - r * 0.4); g.stroke();
+  const CN = "#5fc247";
+  // пятнышки на шкуре и светлое пузико
+  g.fillStyle = "rgba(255,255,255,0.12)";
+  g.beginPath(); g.ellipse(x, y + r * 0.62, r * 0.36, r * 0.26, 0, 0, TAU); g.fill();
+  speckles(g, x - r * 0.42, y + r * 0.3, r * 0.22, r * 0.3, 5, 9, shade(CN, 0.78), r * 0.05);
+  speckles(g, x + r * 0.44, y + r * 0.34, r * 0.2, r * 0.28, 4, 4, shade(CN, 0.78), r * 0.05);
+  // маленькие ушки-рожки
+  g.fillStyle = shade(CN, 0.88); g.strokeStyle = shade(CN, 0.5); g.lineWidth = Math.max(1.3, r * 0.045);
+  for (const s3 of [-1, 1]) {
+    g.beginPath(); g.moveTo(x + s3 * r * 0.5, y - r * 0.66); g.quadraticCurveTo(x + s3 * r * 0.72, y - r * 0.98, x + s3 * r * 0.3, y - r * 0.86); g.closePath(); g.fill(); g.stroke();
+  }
+  // румянец и блик
+  g.fillStyle = "rgba(255,150,150,0.3)";
+  g.beginPath(); g.ellipse(x - r * 0.6, y + r * 0.08, r * 0.13, r * 0.09, 0, 0, TAU); g.fill();
+  g.beginPath(); g.ellipse(x + r * 0.6, y + r * 0.08, r * 0.13, r * 0.09, 0, 0, TAU); g.fill();
+  gloss(g, x - r * 0.34, y - r * 0.72, r * 0.16, r * 0.09, 0.26, -0.5);
 }
 function drawSigma(g, x, y, r, ph) {
   const C = "#f0a04b";
@@ -1961,6 +2085,33 @@ function drawSigma(g, x, y, r, ph) {
     g.beginPath(); g.moveTo(x + s2 * r * 0.1, y + r * 0.16); g.lineTo(x + s2 * r * 0.62, y + r * 0.1);
     g.moveTo(x + s2 * r * 0.1, y + r * 0.22); g.lineTo(x + s2 * r * 0.62, y + r * 0.24); g.stroke();
   }
+  const CS = "#f0a04b";
+  // передние лапки
+  g.fillStyle = shade(CS, 1.08); g.strokeStyle = shade(CS, 0.5); g.lineWidth = Math.max(1.3, r * 0.05);
+  for (const s3 of [-1, 1]) {
+    g.beginPath(); g.ellipse(x + s3 * r * 0.26, y + r * 0.95, r * 0.17, r * 0.11, 0, 0, TAU); g.fill(); g.stroke();
+    g.strokeStyle = shade(CS, 0.62); g.lineWidth = Math.max(1, r * 0.025);
+    for (let k = -1; k <= 1; k++) { g.beginPath(); g.moveTo(x + s3 * r * 0.26 + k * r * 0.06, y + r * 0.9); g.lineTo(x + s3 * r * 0.26 + k * r * 0.07, y + r * 0.99); g.stroke(); }
+    g.strokeStyle = shade(CS, 0.5); g.lineWidth = Math.max(1.3, r * 0.05);
+  }
+  // полоски на теле и хвосте
+  g.strokeStyle = shade(CS, 0.72); g.lineWidth = Math.max(1.2, r * 0.05); g.lineCap = "round";
+  g.beginPath(); g.moveTo(x - r * 0.34, y + r * 0.5); g.lineTo(x - r * 0.2, y + r * 0.56);
+  g.moveTo(x - r * 0.3, y + r * 0.72); g.lineTo(x - r * 0.16, y + r * 0.76); g.stroke();
+  g.beginPath(); g.moveTo(x + r * 0.94, y + r * 0.34); g.lineTo(x + r * 0.8, y + r * 0.3);
+  g.moveTo(x + r * 0.92, y + r * 0.02); g.lineTo(x + r * 0.78, y + r * 0.06); g.stroke();
+  // подвеска на цепи
+  g.fillStyle = PAL.gold; g.strokeStyle = shade("#c98f16", 0.9); g.lineWidth = Math.max(1, r * 0.025);
+  g.beginPath(); g.moveTo(x, y + r * 0.56); g.lineTo(x + r * 0.07, y + r * 0.66); g.lineTo(x, y + r * 0.76); g.lineTo(x - r * 0.07, y + r * 0.66); g.closePath(); g.fill(); g.stroke();
+  // пух на щеках — короткие штрихи внутри силуэта, контур головы остаётся чистым
+  g.strokeStyle = shade(CS, 0.8); g.lineWidth = Math.max(1, r * 0.022); g.lineCap = "round";
+  for (const s4 of [-1, 1]) for (let i = 0; i < 3; i++) {
+    const yy = y + r * (0.02 + i * 0.12);
+    g.beginPath(); g.moveTo(x + s4 * r * 0.5, yy); g.lineTo(x + s4 * r * (0.62 - i * 0.03), yy + r * 0.05); g.stroke();
+  }
+  // второй блик на очках
+  g.strokeStyle = "rgba(255,255,255,0.35)"; g.lineWidth = Math.max(1, r * 0.03);
+  g.beginPath(); g.moveTo(x + r * 0.16, y - r * 0.19); g.lineTo(x + r * 0.32, y - r * 0.15); g.stroke();
 }
 function drawBoss(g, x, y, r, ph) {
   const C = "#d0409a", bl = blinkOf(ph);
@@ -2014,6 +2165,32 @@ function drawBoss(g, x, y, r, ph) {
   g.restore();
   g.strokeStyle = shade(C, 0.42); g.lineWidth = Math.max(1.7, r * 0.05);
   g.beginPath(); g.ellipse(x, y + r * 0.36, r * 0.5, r * 0.3, 0, 0, TAU); g.stroke();
+  const CBs = "#d0409a";
+  // рубцы на рогах
+  g.strokeStyle = "rgba(255,255,255,0.18)"; g.lineWidth = Math.max(1, r * 0.022);
+  for (const s3 of [-1, 1]) for (let i = 0; i < 3; i++) {
+    const t = 0.3 + i * 0.22;
+    g.beginPath();
+    g.moveTo(x + s3 * r * (0.52 + t * 0.22), y - r * (0.62 + t * 0.5));
+    g.lineTo(x + s3 * r * (0.36 + t * 0.2), y - r * (0.6 + t * 0.42)); g.stroke();
+  }
+  // блеск короны
+  gloss(g, x - r * 0.34, y - r * 0.82, r * 0.1, r * 0.05, 0.45, -0.5);
+  // чешуйки-пластины на теле
+  speckles(g, x - r * 0.62, y + r * 0.06, r * 0.18, r * 0.4, 5, 41, "rgba(255,255,255,0.12)", r * 0.055);
+  speckles(g, x + r * 0.62, y + r * 0.1, r * 0.18, r * 0.4, 5, 43, "rgba(255,255,255,0.12)", r * 0.055);
+  // когти на лапах
+  const swayB = Math.sin(ph * 2) * r * 0.1;
+  g.strokeStyle = "#ffe6f4"; g.lineWidth = Math.max(1.1, r * 0.03);
+  for (const hx of [x - r * 0.95 + swayB, x + r * 0.95 - swayB]) {
+    for (let k = -1; k <= 1; k++) { g.beginPath(); g.moveTo(hx + k * r * 0.1, y + r * 0.96); g.lineTo(hx + k * r * 0.12, y + r * 1.05); g.stroke(); }
+  }
+  // тлеющие искры вокруг силуэта
+  g.fillStyle = "rgba(255,150,215," + (0.3 + Math.sin(ph * 2) * 0.12).toFixed(3) + ")";
+  for (let i = 0; i < 5; i++) {
+    const a = ph * 0.7 + i * TAU / 5, rr2 = r * (1.04 + Math.sin(ph * 2 + i) * 0.05);
+    g.beginPath(); g.arc(x + Math.cos(a) * rr2, y + Math.sin(a) * rr2 * 0.92, r * 0.045, 0, TAU); g.fill();
+  }
 }
 function drawHamster(g, x, y, r, ph) {
   const C = "#e0a86a";
@@ -2049,6 +2226,27 @@ function drawHamster(g, x, y, r, ph) {
   // лапки
   g.fillStyle = shade(C, 0.8);
   g.beginPath(); g.ellipse(x - r * 0.22, y + r * 0.82, r * 0.12, r * 0.08, 0, 0, TAU); g.ellipse(x + r * 0.22, y + r * 0.82, r * 0.12, r * 0.08, 0, 0, TAU); g.fill();
+  const CH = "#e0a86a";
+  // внутреннее ухо и пух по краю
+  g.fillStyle = "rgba(214,140,140,0.55)";
+  for (const s3 of [-1, 1]) { g.beginPath(); g.arc(x + s3 * r * 0.45, y - r * 0.6, r * 0.1, 0, TAU); g.fill(); }
+  furTufts(g, x, y + r * 0.12, r * 0.78, r * 0.82, Math.PI * 1.08, Math.PI * 1.92, 9, r * 0.05, shade(CH, 0.72), Math.max(1, r * 0.025), 12);
+  // лапки держат зёрнышко
+  g.fillStyle = shade(CH, 1.2); g.strokeStyle = shade(CH, 0.55); g.lineWidth = Math.max(1.2, r * 0.035);
+  for (const s3 of [-1, 1]) { g.beginPath(); g.ellipse(x + s3 * r * 0.17, y + r * 0.6, r * 0.11, r * 0.09, s3 * 0.3, 0, TAU); g.fill(); g.stroke(); }
+  g.fillStyle = "#c98f4e"; g.strokeStyle = "#8f6231";
+  g.beginPath(); g.ellipse(x, y + r * 0.58, r * 0.09, r * 0.07, 0.3, 0, TAU); g.fill(); g.stroke();
+  // румянец на щеках
+  g.fillStyle = "rgba(228,130,130,0.28)";
+  g.beginPath(); g.ellipse(x - r * 0.5, y + r * 0.26, r * 0.12, r * 0.08, 0, 0, TAU); g.fill();
+  g.beginPath(); g.ellipse(x + r * 0.5, y + r * 0.26, r * 0.12, r * 0.08, 0, 0, TAU); g.fill();
+  // шерсть на щёчках
+  g.strokeStyle = shade(CH, 0.78); g.lineWidth = Math.max(1, r * 0.02);
+  for (const s3 of [-1, 1]) for (let i = 0; i < 3; i++) {
+    const yy = y + r * (0.08 + i * 0.1);
+    g.beginPath(); g.moveTo(x + s3 * r * 0.5, yy); g.lineTo(x + s3 * r * 0.62, yy + r * 0.03); g.stroke();
+  }
+  gloss(g, x - r * 0.3, y - r * 0.5, r * 0.18, r * 0.1, 0.2, -0.5);
 }
 function drawChill(g, x, y, r, ph) {
   const fur = "#d3a869", sweater = "#c3c9d4", jeans = "#a6ccdd", shoe = "#e0533a";
@@ -2109,6 +2307,30 @@ function drawChill(g, x, y, r, ph) {
   // румяные щёки
   g.fillStyle = "rgba(230,120,110,0.32)";
   g.beginPath(); g.arc(x - r * 0.3, y - r * 0.32, r * 0.09, 0, TAU); g.arc(x + r * 0.3, y - r * 0.32, r * 0.09, 0, TAU); g.fill();
+  const sw = "#c3c9d4", jn = "#a6ccdd";
+  // ворот худи
+  g.strokeStyle = shade(sw, 0.55); g.lineWidth = Math.max(1.3, r * 0.04);
+  g.beginPath(); g.moveTo(x - r * 0.3, y - r * 0.17); g.quadraticCurveTo(x, y - r * 0.04, x + r * 0.3, y - r * 0.17); g.stroke();
+  // шнурки худи
+  g.strokeStyle = "#f2f5fa"; g.lineWidth = Math.max(1.2, r * 0.035);
+  g.beginPath(); g.moveTo(x - r * 0.12, y - r * 0.1); g.quadraticCurveTo(x - r * 0.16, y + r * 0.08, x - r * 0.1, y + r * 0.18);
+  g.moveTo(x + r * 0.12, y - r * 0.1); g.quadraticCurveTo(x + r * 0.16, y + r * 0.08, x + r * 0.1, y + r * 0.18); g.stroke();
+  g.fillStyle = "#e8ecf3";
+  g.beginPath(); g.arc(x - r * 0.1, y + r * 0.2, r * 0.035, 0, TAU); g.arc(x + r * 0.1, y + r * 0.2, r * 0.035, 0, TAU); g.fill();
+  // карман-кенгуру
+  g.strokeStyle = shade(sw, 0.62); g.lineWidth = Math.max(1.1, r * 0.03);
+  g.beginPath(); g.moveTo(x - r * 0.34, y + r * 0.16); g.quadraticCurveTo(x, y + r * 0.3, x + r * 0.34, y + r * 0.16); g.stroke();
+  // фактура вязки
+  speckles(g, x, y + r * 0.1, r * 0.36, r * 0.24, 8, 21, "rgba(255,255,255,0.13)", r * 0.03);
+  // шнуровка на кроссовках
+  g.strokeStyle = "#f4f6fa"; g.lineWidth = Math.max(1, r * 0.022);
+  for (const s3 of [-1, 1]) for (let i = 0; i < 2; i++) {
+    const bx0 = x + s3 * r * 0.24 - r * 0.12 + i * r * 0.1;
+    g.beginPath(); g.moveTo(bx0, y + r * 0.86); g.lineTo(bx0 + r * 0.08, y + r * 0.92); g.stroke();
+  }
+  // швы на джинсах
+  g.strokeStyle = "rgba(255,255,255,0.35)"; g.lineWidth = Math.max(1, r * 0.018);
+  for (const s3 of [-1, 1]) { g.beginPath(); g.moveTo(x + s3 * r * 0.38, y + r * 0.46); g.lineTo(x + s3 * r * 0.38, y + r * 0.8); g.stroke(); }
 }
 function drawHealer(g, x, y, r, ph) {
   const C = "#b7bdc6";
@@ -2145,6 +2367,27 @@ function drawHealer(g, x, y, r, ph) {
   g.fillStyle = "#4fae7a";
   g.fillRect(x - r * 0.035, y + r * 0.02, r * 0.07, r * 0.2);
   g.fillRect(x - r * 0.09, y + r * 0.075, r * 0.18, r * 0.07);
+  const CHl = "#b7bdc6";
+  // мягкие складки на теле и блик
+  g.strokeStyle = "rgba(90,100,115,0.25)"; g.lineWidth = Math.max(1, r * 0.025); g.lineCap = "round";
+  g.beginPath(); g.moveTo(x - r * 0.5, y + r * 0.74); g.quadraticCurveTo(x, y + r * 0.86, x + r * 0.5, y + r * 0.74); g.stroke();
+  g.beginPath(); g.moveTo(x - r * 0.42, y + r * 0.9); g.quadraticCurveTo(x, y + r * 1.0, x + r * 0.42, y + r * 0.9); g.stroke();
+  gloss(g, x - r * 0.3, y - r * 0.66, r * 0.16, r * 0.1, 0.3, -0.55);
+  gloss(g, x - r * 0.46, y + r * 0.28, r * 0.08, r * 0.26, 0.16, -0.12);
+  // сестринская шапочка с крестом
+  g.fillStyle = "#f6fbff"; g.strokeStyle = "#9fb0c8"; g.lineWidth = Math.max(1.2, r * 0.035);
+  g.beginPath(); g.moveTo(x - r * 0.26, y - r * 0.86); g.lineTo(x + r * 0.26, y - r * 0.86);
+  g.lineTo(x + r * 0.2, y - r * 1.02); g.lineTo(x - r * 0.2, y - r * 1.02); g.closePath(); g.fill(); g.stroke();
+  g.fillStyle = "#4fae7a";
+  g.fillRect(x - r * 0.025, y - r * 0.99, r * 0.05, r * 0.1);
+  g.fillRect(x - r * 0.06, y - r * 0.965, r * 0.12, r * 0.05);
+  // щёчки и спокойная улыбка
+  g.fillStyle = "rgba(210,130,130,0.22)";
+  g.beginPath(); g.ellipse(x - r * 0.3, y - r * 0.5, r * 0.1, r * 0.07, 0, 0, TAU); g.fill();
+  g.beginPath(); g.ellipse(x + r * 0.3, y - r * 0.5, r * 0.1, r * 0.07, 0, 0, TAU); g.fill();
+  // лёгкое лечебное свечение вокруг значка
+  g.fillStyle = "rgba(79,174,122,0.16)";
+  g.beginPath(); g.arc(x, y + r * 0.12, r * 0.26 + Math.sin(ph * 2) * r * 0.02, 0, TAU); g.fill();
 }
 function drawBooster(g, x, y, r, ph) {
   const fur = "#e6a24e", cup = "#2f3b57", accent = "#ffd05a", bow = "#ff7aa8";
@@ -2206,6 +2449,23 @@ function drawBooster(g, x, y, r, ph) {
   g.fillStyle = "#2f3547";
   g.fillRect(x - r * 0.72, y - r * 0.56, r * 0.03, r * 0.22);
   g.beginPath(); g.ellipse(x - r * 0.74, y - r * 0.34, r * 0.06, r * 0.045, -0.4, 0, TAU); g.fill();
+  const CB = "#e6a24e", cup2 = "#2f3b57";
+  // подушки наушников и кабель
+  g.fillStyle = "rgba(255,255,255,0.2)";
+  for (const s3 of [-1, 1]) { g.beginPath(); g.ellipse(x + s3 * r * 0.54, y - r * 0.18, r * 0.07, r * 0.1, 0, 0, TAU); g.fill(); }
+  g.strokeStyle = shade(cup2, 1.35); g.lineWidth = Math.max(1, r * 0.03);
+  g.beginPath(); g.moveTo(x + r * 0.62, y + r * 0.02); g.quadraticCurveTo(x + r * 0.86, y + r * 0.3, x + r * 0.66, y + r * 0.5); g.stroke();
+  // вторая нотка и «ритм»
+  g.fillStyle = "#2f3547";
+  g.fillRect(x - r * 0.92, y - r * 0.24, r * 0.028, r * 0.18);
+  g.beginPath(); g.ellipse(x - r * 0.94, y - r * 0.06, r * 0.05, r * 0.038, -0.4, 0, TAU); g.fill();
+  // пух на груди и полоски на лапках
+  furTufts(g, x, y + r * 0.52, r * 0.5, r * 0.44, Math.PI * 1.15, Math.PI * 1.85, 6, r * 0.045, shade(CB, 0.72), Math.max(1, r * 0.022), 17);
+  g.strokeStyle = shade(CB, 0.7); g.lineWidth = Math.max(1, r * 0.022);
+  for (const s3 of [-1, 1]) for (let k = -1; k <= 1; k++) {
+    g.beginPath(); g.moveTo(x + s3 * r * 0.2 + k * r * 0.05, y + r * 0.84); g.lineTo(x + s3 * r * 0.2 + k * r * 0.055, y + r * 0.91); g.stroke();
+  }
+  gloss(g, x - r * 0.26, y - r * 0.42, r * 0.14, r * 0.08, 0.2, -0.5);
 }
 function drawBreaker(g, x, y, r, ph) {
   const fur = "#9a8f83", light = "#c8c0b5";
@@ -2251,6 +2511,29 @@ function drawBreaker(g, x, y, r, ph) {
   // усы
   g.strokeStyle = "rgba(255,255,255,0.75)"; g.lineWidth = Math.max(1, r * 0.022);
   for (const s2 of [-1, 1]) { g.beginPath(); g.moveTo(x + s2 * r * 0.06, y + r * 0.04); g.lineTo(x + s2 * r * 0.4, y - r * 0.02); g.moveTo(x + s2 * r * 0.06, y + r * 0.09); g.lineTo(x + s2 * r * 0.4, y + r * 0.1); g.stroke(); }
+  const CBr = "#9a8f83";
+  // кулаки — он ломает башни
+  g.fillStyle = shade(CBr, 1.1); g.strokeStyle = shade(CBr, 0.5); g.lineWidth = Math.max(1.4, r * 0.045);
+  for (const s3 of [-1, 1]) {
+    const fx = x + s3 * r * 0.74, fy = y + r * 0.42 + Math.sin(ph * 3 + (s3 > 0 ? 1.6 : 0)) * r * 0.05;
+    g.strokeStyle = shade(CBr, 0.66); g.lineWidth = r * 0.13;
+    g.beginPath(); g.moveTo(x + s3 * r * 0.5, y + r * 0.24); g.lineTo(fx, fy - r * 0.04); g.stroke();
+    g.fillStyle = shade(CBr, 1.1); g.strokeStyle = shade(CBr, 0.5); g.lineWidth = Math.max(1.3, r * 0.04);
+    g.beginPath(); g.arc(fx, fy, r * 0.15, 0, TAU); g.fill(); g.stroke();
+    g.fillStyle = shade(CBr, 0.7);
+    for (let k = -1; k <= 1; k++) { g.beginPath(); g.arc(fx + s3 * r * 0.03, fy + k * r * 0.07, r * 0.022, 0, TAU); g.fill(); }
+    g.fillStyle = shade(CBr, 1.1);
+  }
+  // клочья шерсти по контуру
+  furTufts(g, x, y + r * 0.12, r * 0.88, r * 0.82, Math.PI * 1.02, Math.PI * 1.98, 13, r * 0.07, shade(CBr, 0.66), Math.max(1, r * 0.03), 31);
+  furTufts(g, x, y + r * 0.12, r * 0.88, r * 0.82, Math.PI * 0.08, Math.PI * 0.92, 9, r * 0.06, shade(CBr, 0.6), Math.max(1, r * 0.026), 33);
+  // шрам на щеке и пластырь на ухе
+  g.strokeStyle = "rgba(90,70,60,0.5)"; g.lineWidth = Math.max(1, r * 0.022);
+  g.beginPath(); g.moveTo(x - r * 0.3, y - r * 0.02); g.lineTo(x - r * 0.24, y + r * 0.1); g.stroke();
+  g.beginPath(); g.moveTo(x - r * 0.33, y + r * 0.02); g.lineTo(x - r * 0.21, y + r * 0.06); g.stroke();
+  g.fillStyle = "#e8d3ad"; g.strokeStyle = "#c6ab7f"; g.lineWidth = Math.max(1, r * 0.02);
+  g.save(); g.translate(x + r * 0.3, y - r * 0.9); g.rotate(0.3);
+  rr(g, -r * 0.11, -r * 0.05, r * 0.22, r * 0.1, r * 0.03); g.fill(); g.stroke(); g.restore();
 }
 
 /* ---------- Снаряды / эффекты / частицы ---------- */
