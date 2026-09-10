@@ -1348,50 +1348,150 @@ function btn(id, x, y, w, h, label, opt) {
 }
 
 /* ---------- Поле / лабиринт ---------- */
-function drawBoard() {
+/* Трава, декор и дорога не меняются от кадра к кадру, поэтому рисуются один раз
+   в offscreen-канвас и дальше выводятся одной картинкой. Кэш сбрасывается при
+   смене раскладки, скина или карты — только тогда что-то из этого меняется. */
+const BoardArt = { canvas: null, key: "", path: null };
+function boardArtKey() {
+  const b = view.board;
+  return b.x + "|" + b.y + "|" + b.cell + "|" + view.dpr + "|" + Save.data.skin;
+}
+function boardArt() {
+  const b = view.board, key = boardArtKey();
+  if (BoardArt.canvas && BoardArt.key === key && BoardArt.path === G.path) return BoardArt.canvas;
+  const dpr = view.dpr || 1;
+  const cv = document.createElement("canvas");
+  cv.width = Math.max(1, Math.round(b.w * dpr));
+  cv.height = Math.max(1, Math.round(b.h * dpr));
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, -b.x * dpr, -b.y * dpr);
+  paintBoard(g);
+  BoardArt.canvas = cv; BoardArt.key = key; BoardArt.path = G.path;
+  return cv;
+}
+function paintBoard(g) {
   const b = view.board, sk = skin();
-  // трава-шахматка
+  // трава: шахматка приглушена (тёмная клетка подмешана к светлой) плюс лёгкий разброс тона
+  const gA = sk.grassA, gB = mixHex(sk.grassB, sk.grassA, 0.4);
   for (let r = 0; r < GRID_ROWS; r++) {
     for (let c = 0; c < GRID_COLS; c++) {
-      ctx.fillStyle = ((c + r) & 1) ? sk.grassA : sk.grassB;
-      ctx.fillRect(b.x + c * b.cell, b.y + r * b.cell, b.cell + 1, b.cell + 1);
+      const h = cellHash(c, r), base = ((c + r) & 1) ? gA : gB;
+      g.fillStyle = shade(base, 0.985 + (h % 7) * 0.005);
+      g.fillRect(cx(c), cy(r), b.cell + 1, b.cell + 1);
     }
   }
+  // штрихи травы поверх клеток — поле выглядит газоном, а не заливкой
+  g.lineCap = "round";
+  for (let r = 0; r < GRID_ROWS; r++) for (let c = 0; c < GRID_COLS; c++) {
+    const h = cellHash(c * 3 + 1, r * 5 + 2);
+    g.strokeStyle = ((h >>> 7) & 1) ? "rgba(255,255,255,0.055)" : "rgba(10,40,20,0.06)";
+    g.lineWidth = Math.max(1, b.cell * 0.028);
+    for (let k = 0; k < 3; k++) {
+      const hx = (h >>> (k * 5)) & 31, hy = (h >>> (k * 5 + 3)) & 31;
+      const bx = cx(c + 0.15 + (hx / 31) * 0.7), by = cy(r + 0.15 + (hy / 31) * 0.7);
+      g.beginPath(); g.moveTo(bx, by + b.cell * 0.05);
+      g.quadraticCurveTo(bx + b.cell * 0.02, by, bx + b.cell * 0.04, by - b.cell * 0.06);
+      g.stroke();
+    }
+  }
+  // выгоревшие и густые пятна поверх шахматки
+  for (let i = 0; i < 9; i++) {
+    const h = cellHash(i * 17 + 3, i * 11 + 5);
+    const px = cx((h % 997) / 997 * GRID_COLS), py = cy(((h >>> 10) % 997) / 997 * GRID_ROWS);
+    const rad = b.cell * (0.7 + ((h >>> 20) % 100) / 100 * 1.3);
+    g.fillStyle = (i % 3 === 0) ? "rgba(255,247,200,0.05)" : "rgba(18,58,30,0.06)";
+    g.beginPath(); g.ellipse(px, py, rad, rad * 0.68, (h % 7) * 0.4, 0, TAU); g.fill();
+  }
   // мягкое верхнее освещение поля
-  const lg = ctx.createLinearGradient(0, b.y, 0, b.y + b.h);
+  const lg = g.createLinearGradient(0, b.y, 0, b.y + b.h);
   lg.addColorStop(0, "rgba(255,255,255,0.10)");
   lg.addColorStop(0.5, "rgba(255,255,255,0)");
   lg.addColorStop(1, "rgba(0,0,0,0.13)");
-  ctx.fillStyle = lg; ctx.fillRect(b.x, b.y, b.w, b.h);
+  g.fillStyle = lg; g.fillRect(b.x, b.y, b.w, b.h);
   // декор на траве (детерминированный, без мерцания)
   for (let r = 0; r < GRID_ROWS; r++) for (let c = 0; c < GRID_COLS; c++) {
-    if (G.path.pathSet.has(c + "," + r) || towerAt(c, r)) continue;
-    drawGrassDecor(c, r);
+    if (G.path.pathSet.has(c + "," + r)) continue;
+    drawGrassDecor(g, c, r);
   }
-  // дорога (несколько слоёв)
-  const pts = G.path.way.map(p => ({ x: cx(p.c), y: cy(p.r) }));
-  ctx.lineJoin = "round"; ctx.lineCap = "round";
-  ctx.strokeStyle = shade(sk.pathEdge, 0.78); ctx.lineWidth = b.cell * 0.9; strokePoly(pts);
-  ctx.strokeStyle = sk.pathEdge; ctx.lineWidth = b.cell * 0.82; strokePoly(pts);
-  ctx.strokeStyle = sk.path; ctx.lineWidth = b.cell * 0.62; strokePoly(pts);
-  ctx.strokeStyle = shade(sk.path, 1.12); ctx.lineWidth = b.cell * 0.26; strokePoly(pts);
-  // камешки на дороге
-  ctx.fillStyle = shade(sk.pathEdge, 0.88);
-  for (let i = 1; i < G.path.cells.length; i++) {
-    const cc = G.path.cells[i], h = cellHash(cc[0], cc[1]);
-    if (h % 3 === 0) {
-      const px = cx(cc[0] + 0.5 + ((h >> 3 & 7) / 7 - 0.5) * 0.5);
-      const py = cy(cc[1] + 0.5 + ((h >> 6 & 7) / 7 - 0.5) * 0.5);
-      ctx.beginPath(); ctx.ellipse(px, py, b.cell * 0.06, b.cell * 0.045, 0, 0, TAU); ctx.fill();
-    }
+  paintRoad(g);
+  // внутренняя тень по краям поля — доска выглядит утопленной в фон
+  const e = b.cell * 0.6;
+  const edges = [
+    [b.x, b.y, b.w, e, 0, b.y, 0, b.y + e],
+    [b.x, b.y + b.h - e, b.w, e, 0, b.y + b.h, 0, b.y + b.h - e],
+    [b.x, b.y, e, b.h, b.x, 0, b.x + e, 0],
+    [b.x + b.w - e, b.y, e, b.h, b.x + b.w, 0, b.x + b.w - e, 0]
+  ];
+  for (const ed of edges) {
+    const gr = g.createLinearGradient(ed[4], ed[5], ed[6], ed[7]);
+    gr.addColorStop(0, "rgba(8,18,34,0.28)");
+    gr.addColorStop(1, "rgba(8,18,34,0)");
+    g.fillStyle = gr; g.fillRect(ed[0], ed[1], ed[2], ed[3]);
   }
   // рамка поля
-  ctx.strokeStyle = "rgba(0,0,0,0.28)"; ctx.lineWidth = 3 * view.ui;
-  ctx.strokeRect(b.x, b.y, b.w, b.h);
+  const fw = Math.max(2, 3 * view.ui);
+  g.strokeStyle = "rgba(9,20,38,0.75)"; g.lineWidth = fw;
+  g.strokeRect(b.x + fw / 2, b.y + fw / 2, b.w - fw, b.h - fw);
+  g.strokeStyle = "rgba(255,255,255,0.10)"; g.lineWidth = Math.max(1, fw * 0.5);
+  g.strokeRect(b.x + fw * 1.4, b.y + fw * 1.4, b.w - fw * 2.8, b.h - fw * 2.8);
   // указатели вход/выход
-  drawFlag(pts[1].x, pts[1].y, PAL.good);
-  drawFlag(pts[pts.length - 2].x, pts[pts.length - 2].y, PAL.danger);
-
+  const pts = G.path.way;
+  drawFlag(g, cx(pts[1].c), cy(pts[1].r), PAL.good);
+  drawFlag(g, cx(pts[pts.length - 2].c), cy(pts[pts.length - 2].r), PAL.danger);
+}
+/* Дорога: тень на траве, слои покрытия, колея, обкусанный травой край и камешки. */
+function paintRoad(g) {
+  const b = view.board, sk = skin(), cell = b.cell;
+  const pts = G.path.way.map(pp => ({ x: cx(pp.c), y: cy(pp.r) }));
+  const wob1 = wobblePoly(pts, cell * 0.05, 1.7), wob2 = wobblePoly(pts, cell * 0.04, 4.3);
+  g.lineJoin = "round"; g.lineCap = "round";
+  g.strokeStyle = "rgba(16,42,24,0.22)"; g.lineWidth = cell * 1.02; strokePoly(g, wob1);
+  g.strokeStyle = shade(sk.pathEdge, 0.74); g.lineWidth = cell * 0.92; strokePoly(g, wob1);
+  g.strokeStyle = sk.pathEdge; g.lineWidth = cell * 0.84; strokePoly(g, wob2);
+  g.strokeStyle = sk.path; g.lineWidth = cell * 0.64; strokePoly(g, wob1);
+  g.strokeStyle = shade(sk.path, 1.12); g.lineWidth = cell * 0.26; strokePoly(g, pts);
+  // накатанная колея
+  g.strokeStyle = "rgba(120,88,52,0.16)"; g.lineWidth = cell * 0.05;
+  g.setLineDash([cell * 0.3, cell * 0.55]); strokePoly(g, wob2); g.setLineDash([]);
+  const cells = G.path.cells;
+  for (let i = 0; i < cells.length; i++) {
+    const cc = cells[i], h = cellHash(cc[0], cc[1]);
+    const px = cx(cc[0] + 0.5), py = cy(cc[1] + 0.5);
+    // направление участка, чтобы понять, где у дороги обочина
+    const prev = cells[i - 1] || cells[i], next = cells[i + 1] || cells[i];
+    const dx = next[0] - prev[0], dy = next[1] - prev[1];
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len;
+    // мягкая тень травы на обочине — край дороги не выглядит вырезанным ножницами
+    for (const sgn of [-1, 1]) {
+      if ((h >> (sgn > 0 ? 3 : 9) & 3) === 0) continue;
+      const t = ((h >> (sgn > 0 ? 5 : 11) & 7) / 7 - 0.5) * 0.6;
+      const gx = px + nx * sgn * cell * 0.4 + (dx / len) * cell * t;
+      const gy = py + ny * sgn * cell * 0.4 + (dy / len) * cell * t;
+      g.fillStyle = "rgba(24,60,32,0.13)";
+      g.beginPath(); g.ellipse(gx, gy, cell * 0.13, cell * 0.07, Math.atan2(dy, dx), 0, TAU); g.fill();
+    }
+    // камешки и пыль на полотне
+    if (h % 3 === 0) {
+      const sx = px + ((h >> 3 & 7) / 7 - 0.5) * cell * 0.45;
+      const sy = py + ((h >> 6 & 7) / 7 - 0.5) * cell * 0.45;
+      g.fillStyle = shade(sk.pathEdge, 0.82);
+      g.beginPath(); g.ellipse(sx, sy, cell * 0.065, cell * 0.045, (h % 5) * 0.6, 0, TAU); g.fill();
+      g.fillStyle = "rgba(255,255,255,0.35)";
+      g.beginPath(); g.ellipse(sx - cell * 0.015, sy - cell * 0.015, cell * 0.028, cell * 0.018, 0, 0, TAU); g.fill();
+    }
+    if (h % 4 === 1) {
+      g.fillStyle = shade(sk.path, 0.9);
+      for (let k = 0; k < 3; k++) {
+        const a = (h >> (k * 3) & 7) / 7 * TAU;
+        g.beginPath(); g.arc(px + Math.cos(a) * cell * 0.24, py + Math.sin(a) * cell * 0.2, cell * 0.022, 0, TAU); g.fill();
+      }
+    }
+  }
+}
+function drawBoard() {
+  const b = view.board;
+  ctx.drawImage(boardArt(), b.x, b.y, b.w, b.h);
   // подсветка ячеек под строительство
   if (G.state === "playing" && G.selType) {
     ctx.lineWidth = 2 * view.ui;
@@ -1420,19 +1520,59 @@ function drawBoard() {
     ctx.strokeStyle = TOWERS[G.selTower.type].color; ctx.lineWidth = 2 * view.ui; ctx.stroke();
   }
 }
-function strokePoly(pts) {
-  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  ctx.stroke();
+/* Смешать два цвета — нужно, чтобы приглушить контраст шахматки. */
+function mixHex(a, bq, t) {
+  const A = parseInt(a.slice(1), 16), B = parseInt(bq.slice(1), 16);
+  const r = Math.round(((A >> 16) & 255) * (1 - t) + ((B >> 16) & 255) * t);
+  const gg = Math.round(((A >> 8) & 255) * (1 - t) + ((B >> 8) & 255) * t);
+  const bb = Math.round((A & 255) * (1 - t) + (B & 255) * t);
+  return "#" + ((1 << 24) + (r << 16) + (gg << 8) + bb).toString(16).slice(1);
 }
-function drawFlag(x, y, color) {
-  const s = view.board.cell * 0.22;
-  ctx.strokeStyle = "#5a4632"; ctx.lineWidth = Math.max(2, s * 0.25); ctx.lineCap = "round";
-  ctx.beginPath(); ctx.moveTo(x, y + s); ctx.lineTo(x, y - s * 1.4); ctx.stroke();
-  ctx.fillStyle = color;
-  ctx.beginPath(); ctx.moveTo(x, y - s * 1.4); ctx.lineTo(x + s * 1.4, y - s * 0.9); ctx.lineTo(x, y - s * 0.35); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.25)";
-  ctx.beginPath(); ctx.moveTo(x, y - s * 1.4); ctx.lineTo(x + s * 0.7, y - s * 1.15); ctx.lineTo(x, y - s * 0.9); ctx.closePath(); ctx.fill();
+/* Осевая линия дороги, разбитая на короткие отрезки и слегка уведённая в сторону:
+   край получается нарисованным от руки, а не по линейке. Ходят враги по-прежнему
+   по настоящей осевой — это только графика. */
+function wobblePoly(pts, amp, seed) {
+  const out = [], step = view.board.cell * 0.45;
+  let idx = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], bq = pts[i + 1];
+    const dx = bq.x - a.x, dy = bq.y - a.y, len = Math.hypot(dx, dy) || 1;
+    const n = Math.max(1, Math.round(len / step));
+    const nx = -dy / len, ny = dx / len;
+    for (let k = 0; k < n; k++) {
+      const t = k / n, o = (Math.sin(idx * 0.9 + seed) * 0.6 + Math.sin(idx * 2.3 + seed * 3) * 0.4) * amp;
+      out.push({ x: a.x + dx * t + nx * o, y: a.y + dy * t + ny * o });
+      idx++;
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+function strokePoly(g, pts) {
+  g.beginPath(); g.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+  g.stroke();
+}
+function drawFlag(g, x, y, color) {
+  const s = view.board.cell * 0.22, wave = s * 0.14;
+  g.fillStyle = "rgba(0,0,0,0.18)";
+  g.beginPath(); g.ellipse(x, y + s * 1.02, s * 0.34, s * 0.12, 0, 0, TAU); g.fill();
+  g.strokeStyle = "#5a4632"; g.lineWidth = Math.max(2, s * 0.25); g.lineCap = "round";
+  g.beginPath(); g.moveTo(x, y + s); g.lineTo(x, y - s * 1.4); g.stroke();
+  g.strokeStyle = "rgba(255,255,255,0.22)"; g.lineWidth = Math.max(1, s * 0.08);
+  g.beginPath(); g.moveTo(x - s * 0.06, y + s * 0.8); g.lineTo(x - s * 0.06, y - s * 1.2); g.stroke();
+  g.fillStyle = color;
+  g.beginPath();
+  g.moveTo(x, y - s * 1.4);
+  g.quadraticCurveTo(x + s * 0.8, y - s * 1.4 + wave, x + s * 1.4, y - s * 0.9);
+  g.quadraticCurveTo(x + s * 0.7, y - s * 0.55 - wave, x, y - s * 0.35);
+  g.closePath(); g.fill();
+  g.fillStyle = "rgba(255,255,255,0.25)";
+  g.beginPath(); g.moveTo(x, y - s * 1.4); g.lineTo(x + s * 0.7, y - s * 1.15); g.lineTo(x, y - s * 0.9); g.closePath(); g.fill();
+  g.fillStyle = "rgba(0,0,0,0.14)";
+  g.beginPath(); g.moveTo(x, y - s * 0.9); g.lineTo(x + s * 0.7, y - s * 0.72); g.lineTo(x, y - s * 0.35); g.closePath(); g.fill();
+  g.fillStyle = "#c8b48a";
+  g.beginPath(); g.arc(x, y - s * 1.46, s * 0.13, 0, TAU); g.fill();
 }
 /* детерминированный хэш ячейки — стабильный декор без мерцания */
 function cellHash(c, r) {
@@ -1441,33 +1581,55 @@ function cellHash(c, r) {
   h ^= h >>> 13;
   return h >>> 0;
 }
-function drawGrassDecor(c, r) {
-  const b = view.board, h = cellHash(c, r), kind = h % 10;
-  if (kind >= 8) return; // часть клеток пустая — не перегружаем
+function drawGrassDecor(g, c, r) {
+  const b = view.board, h = cellHash(c, r), kind = h % 12;
+  if (kind >= 9) return; // часть клеток пустая — не перегружаем
   const ox = ((h >> 4 & 15) / 15 - 0.5) * 0.44, oy = ((h >> 8 & 15) / 15 - 0.5) * 0.44;
   const x = cx(c + 0.5 + ox), y = cy(r + 0.5 + oy), s = b.cell;
   if (kind < 3) { // кустик
-    ctx.fillStyle = "rgba(0,0,0,0.12)"; ctx.beginPath(); ctx.ellipse(x, y + s * 0.14, s * 0.2, s * 0.06, 0, 0, TAU); ctx.fill();
-    const gc = "#3c7a43"; ctx.fillStyle = gc;
-    for (const dx of [-0.13, 0, 0.13]) { ctx.beginPath(); ctx.arc(x + dx * s, y, s * 0.115, 0, TAU); ctx.fill(); }
-    ctx.fillStyle = shade(gc, 1.22); ctx.beginPath(); ctx.arc(x - s * 0.05, y - s * 0.04, s * 0.06, 0, TAU); ctx.fill();
+    g.fillStyle = "rgba(0,0,0,0.12)"; g.beginPath(); g.ellipse(x, y + s * 0.14, s * 0.2, s * 0.06, 0, 0, TAU); g.fill();
+    const gc = "#3c7a43"; g.fillStyle = gc;
+    for (const dx of [-0.13, 0, 0.13]) { g.beginPath(); g.arc(x + dx * s, y, s * 0.115, 0, TAU); g.fill(); }
+    g.fillStyle = shade(gc, 1.22); g.beginPath(); g.arc(x - s * 0.05, y - s * 0.04, s * 0.06, 0, TAU); g.fill();
+    g.fillStyle = shade(gc, 0.72);
+    g.beginPath(); g.ellipse(x + s * 0.1, y + s * 0.06, s * 0.07, s * 0.05, 0, 0, TAU); g.fill();
+    if ((h >> 16 & 3) === 0) { // ягодки
+      g.fillStyle = "#e2545f";
+      for (const dx of [-0.08, 0.06]) { g.beginPath(); g.arc(x + dx * s, y - s * 0.04, s * 0.028, 0, TAU); g.fill(); }
+    }
   } else if (kind < 5) { // цветок
     const col = ["#ef6f9a", "#ffd166", "#8f7bff", "#ff9f45"][h >> 12 & 3];
-    ctx.strokeStyle = "#3c7a43"; ctx.lineWidth = Math.max(1, s * 0.03); ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(x, y + s * 0.14); ctx.lineTo(x, y - s * 0.02); ctx.stroke();
-    ctx.fillStyle = col;
-    for (let i = 0; i < 5; i++) { const a = i * TAU / 5; ctx.beginPath(); ctx.arc(x + Math.cos(a) * s * 0.07, y - s * 0.05 + Math.sin(a) * s * 0.07, s * 0.045, 0, TAU); ctx.fill(); }
-    ctx.fillStyle = "#ffe08a"; ctx.beginPath(); ctx.arc(x, y - s * 0.05, s * 0.035, 0, TAU); ctx.fill();
+    g.strokeStyle = "#3c7a43"; g.lineWidth = Math.max(1, s * 0.03); g.lineCap = "round";
+    g.beginPath(); g.moveTo(x, y + s * 0.14); g.lineTo(x, y - s * 0.02); g.stroke();
+    g.beginPath(); g.moveTo(x, y + s * 0.06); g.lineTo(x + s * 0.06, y + s * 0.02); g.stroke();
+    g.fillStyle = "rgba(0,0,0,0.10)"; g.beginPath(); g.ellipse(x, y + s * 0.16, s * 0.09, s * 0.03, 0, 0, TAU); g.fill();
+    g.fillStyle = col;
+    for (let i = 0; i < 5; i++) { const a = i * TAU / 5; g.beginPath(); g.arc(x + Math.cos(a) * s * 0.07, y - s * 0.05 + Math.sin(a) * s * 0.07, s * 0.045, 0, TAU); g.fill(); }
+    g.fillStyle = shade(col, 0.82);
+    for (let i = 0; i < 5; i++) { const a = i * TAU / 5; g.beginPath(); g.arc(x + Math.cos(a) * s * 0.085, y - s * 0.03 + Math.sin(a) * s * 0.085, s * 0.018, 0, TAU); g.fill(); }
+    g.fillStyle = "#ffe08a"; g.beginPath(); g.arc(x, y - s * 0.05, s * 0.035, 0, TAU); g.fill();
   } else if (kind < 6) { // камень
-    ctx.fillStyle = "rgba(0,0,0,0.12)"; ctx.beginPath(); ctx.ellipse(x, y + s * 0.1, s * 0.16, s * 0.05, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = "#8b93a3"; ctx.beginPath(); ctx.ellipse(x, y, s * 0.14, s * 0.1, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = "#aab1bd"; ctx.beginPath(); ctx.ellipse(x - s * 0.03, y - s * 0.03, s * 0.07, s * 0.05, 0, 0, TAU); ctx.fill();
+    g.fillStyle = "rgba(0,0,0,0.12)"; g.beginPath(); g.ellipse(x, y + s * 0.1, s * 0.16, s * 0.05, 0, 0, TAU); g.fill();
+    g.fillStyle = "#8b93a3"; g.beginPath(); g.ellipse(x, y, s * 0.14, s * 0.1, 0, 0, TAU); g.fill();
+    g.fillStyle = "#aab1bd"; g.beginPath(); g.ellipse(x - s * 0.03, y - s * 0.03, s * 0.07, s * 0.05, 0, 0, TAU); g.fill();
+    g.strokeStyle = "rgba(60,70,85,0.5)"; g.lineWidth = Math.max(1, s * 0.016);
+    g.beginPath(); g.moveTo(x - s * 0.06, y + s * 0.02); g.lineTo(x + s * 0.03, y + s * 0.05); g.stroke();
+  } else if (kind < 7) { // грибок
+    g.fillStyle = "rgba(0,0,0,0.10)"; g.beginPath(); g.ellipse(x, y + s * 0.11, s * 0.1, s * 0.035, 0, 0, TAU); g.fill();
+    g.fillStyle = "#efe6d2"; rr(g, x - s * 0.025, y - s * 0.02, s * 0.05, s * 0.12, s * 0.02); g.fill();
+    g.fillStyle = "#d0574f";
+    g.beginPath(); g.ellipse(x, y - s * 0.03, s * 0.085, s * 0.06, 0, Math.PI, TAU); g.fill();
+    g.fillStyle = "rgba(255,255,255,0.8)";
+    g.beginPath(); g.arc(x - s * 0.03, y - s * 0.05, s * 0.018, 0, TAU); g.fill();
+    g.beginPath(); g.arc(x + s * 0.025, y - s * 0.035, s * 0.013, 0, TAU); g.fill();
   } else { // пучки травы
-    ctx.strokeStyle = shade(skin().grassA, 0.72); ctx.lineWidth = Math.max(1, s * 0.03); ctx.lineCap = "round";
+    g.strokeStyle = shade(skin().grassA, 0.72); g.lineWidth = Math.max(1, s * 0.03); g.lineCap = "round";
     for (let i = -1; i <= 1; i++) {
       const bx = x + i * s * 0.07;
-      ctx.beginPath(); ctx.moveTo(bx, y + s * 0.08); ctx.quadraticCurveTo(bx + s * 0.03, y - s * 0.02, bx + i * s * 0.05, y - s * 0.11); ctx.stroke();
+      g.beginPath(); g.moveTo(bx, y + s * 0.08); g.quadraticCurveTo(bx + s * 0.03, y - s * 0.02, bx + i * s * 0.05, y - s * 0.11); g.stroke();
     }
+    g.strokeStyle = shade(skin().grassA, 1.18); g.lineWidth = Math.max(1, s * 0.02);
+    g.beginPath(); g.moveTo(x + s * 0.02, y + s * 0.07); g.quadraticCurveTo(x + s * 0.06, y - s * 0.01, x + s * 0.09, y - s * 0.08); g.stroke();
   }
 }
 
