@@ -1493,38 +1493,92 @@ const CANNON_SHAPE = {
   tesla: "coil", venom: "sprayer", blizzard: "blower", twin: "double",
   railgun: "rails", inferno: "flame", prism: "prism"
 };
-function drawTowerBase(g, x, y, s) {
-  const lw = Math.max(1.5, s * 0.05);
+function drawTowerBase(g, x, y, s, level) {
+  const lw = Math.max(1.5, s * 0.05), lv = level || 0;
+  g.lineJoin = "round";
   g.fillStyle = "rgba(0,0,0,0.25)";
   g.beginPath(); g.ellipse(x, y + s * 0.34, s * 0.4, s * 0.16, 0, 0, TAU); g.fill();
+  // опорные ножки из-под плиты
+  g.fillStyle = "#3d4557"; g.strokeStyle = PAL.outline; g.lineWidth = Math.max(1, s * 0.03);
+  for (const dx of [-0.26, 0.26]) { rr(g, x + dx * s - s * 0.07, y + s * 0.2, s * 0.14, s * 0.15, s * 0.04); g.fill(); g.stroke(); }
+  // плита
   rr(g, x - s * 0.38, y - s * 0.18, s * 0.76, s * 0.52, s * 0.13);
   g.fillStyle = radial(g, x - s * 0.1, y - s * 0.1, s * 0.04, x, y + s * 0.12, s * 0.72, [[0, shade("#6a7690", 1.25)], [1, shade("#6a7690", 0.72)]]);
   g.fill();
   g.strokeStyle = PAL.outline; g.lineWidth = lw; g.stroke();
+  // верхняя фаска
   rr(g, x - s * 0.32, y - s * 0.16, s * 0.64, s * 0.15, s * 0.08);
   g.fillStyle = "rgba(255,255,255,0.22)"; g.fill();
+  // шов панели и тень у нижнего края
+  g.strokeStyle = "rgba(10,20,40,0.3)"; g.lineWidth = Math.max(1, s * 0.018);
+  g.beginPath(); g.moveTo(x - s * 0.32, y + s * 0.13); g.lineTo(x + s * 0.32, y + s * 0.13); g.stroke();
+  g.fillStyle = "rgba(10,20,40,0.16)";
+  rr(g, x - s * 0.36, y + s * 0.2, s * 0.72, s * 0.12, s * 0.05); g.fill();
+  // заклёпки по углам плиты
+  g.fillStyle = "#aab6cc";
+  for (const dx of [-0.3, 0.3]) for (const dy of [-0.09, 0.07]) {
+    g.beginPath(); g.arc(x + dx * s, y + dy * s, s * 0.026, 0, TAU); g.fill();
+    g.fillStyle = "rgba(255,255,255,0.5)";
+    g.beginPath(); g.arc(x + dx * s - s * 0.008, y + dy * s - s * 0.008, s * 0.011, 0, TAU); g.fill();
+    g.fillStyle = "#aab6cc";
+  }
+  // гнездо под турель
+  g.fillStyle = "rgba(10,18,34,0.34)";
+  g.beginPath(); g.ellipse(x, y - s * 0.01, s * 0.31, s * 0.2, 0, 0, TAU); g.fill();
+  // накладки за уровень: стальной кант, потом золотой
+  if (lv >= 1) {
+    g.strokeStyle = "#c2ccdd"; g.lineWidth = Math.max(1, s * 0.022);
+    rr(g, x - s * 0.34, y - s * 0.14, s * 0.68, s * 0.44, s * 0.1); g.stroke();
+  }
+  if (lv >= 2) {
+    g.strokeStyle = PAL.gold; g.lineWidth = Math.max(1, s * 0.026);
+    g.beginPath(); g.moveTo(x - s * 0.36, y + s * 0.05); g.lineTo(x - s * 0.36, y + s * 0.24);
+    g.moveTo(x + s * 0.36, y + s * 0.05); g.lineTo(x + s * 0.36, y + s * 0.24); g.stroke();
+  }
 }
 function drawTower(g, x, y, s, type, angle, level) {
-  drawTowerBase(g, x, y, s);
-  drawCannonDevice(g, x, y - s * 0.02, s, type, angle);
+  drawTowerBase(g, x, y, s, level);
+  drawCannonDevice(g, x, y - s * 0.02, s, type, angle, level);
   for (let i = 0; i < 3; i++) {
     g.beginPath(); g.arc(x - s * 0.16 + i * s * 0.16, y + s * 0.24, s * 0.045, 0, TAU);
-    g.fillStyle = i <= level ? PAL.gold : "rgba(0,0,0,0.3)"; g.fill();
+    g.fillStyle = i <= level ? PAL.gold : "rgba(0,0,0,0.32)"; g.fill();
+    g.strokeStyle = "rgba(10,18,34,0.45)"; g.lineWidth = Math.max(1, s * 0.014); g.stroke();
+    if (i <= level) { g.fillStyle = "rgba(255,255,255,0.6)"; g.beginPath(); g.arc(x - s * 0.17 + i * s * 0.16, y + s * 0.23, s * 0.015, 0, TAU); g.fill(); }
   }
 }
 function drawTowerIcon(g, x, y, s, type) {
-  drawTowerBase(g, x, y, s * 0.9);
-  drawCannonDevice(g, x, y - s * 0.02, s * 0.9, type, -0.55);
+  drawTowerBase(g, x, y, s * 0.9, 0);
+  drawCannonDevice(g, x, y - s * 0.02, s * 0.9, type, -0.55, 0);
 }
-function drawCannonDevice(g, x, y, s, type, angle) {
+function drawCannonDevice(g, x, y, s, type, angle, level) {
   const def = TOWERS[type], C = def.color, lw = Math.max(1.3, s * 0.05), dark = shade(C, 0.45);
   const shape = CANNON_SHAPE[type] || "sling";
   const upright = (shape === "crystal" || shape === "coil" || shape === "prism");
+  const lv = level || 0;
   // турель-основание цвета пушки
   g.beginPath(); g.arc(x, y, s * 0.24, 0, TAU);
   g.fillStyle = radial(g, x - s * 0.08, y - s * 0.09, s * 0.03, x, y, s * 0.27, [[0, shade(C, 1.35)], [1, shade(C, 0.72)]]);
   g.fill(); g.strokeStyle = PAL.outline; g.lineWidth = lw; g.stroke();
+  // воротник турели и блик по верхнему краю
+  g.strokeStyle = shade(C, 0.6); g.lineWidth = Math.max(1, s * 0.018);
+  g.beginPath(); g.arc(x, y, s * 0.19, 0, TAU); g.stroke();
+  g.strokeStyle = "rgba(255,255,255,0.45)"; g.lineWidth = Math.max(1, s * 0.022);
+  g.beginPath(); g.arc(x, y, s * 0.21, Math.PI * 1.05, Math.PI * 1.75); g.stroke();
   g.beginPath(); g.arc(x - s * 0.07, y - s * 0.08, s * 0.07, 0, TAU); g.fillStyle = "rgba(255,255,255,0.5)"; g.fill();
+  // кольца прокачки: сталь на 2-м уровне, золото с заклёпками на 3-м
+  if (lv >= 1) {
+    g.strokeStyle = "#c2ccdd"; g.lineWidth = Math.max(1, s * 0.022);
+    g.beginPath(); g.arc(x, y, s * 0.25, 0, TAU); g.stroke();
+  }
+  if (lv >= 2) {
+    g.strokeStyle = PAL.gold; g.lineWidth = Math.max(1, s * 0.024);
+    g.beginPath(); g.arc(x, y, s * 0.29, 0, TAU); g.stroke();
+    g.fillStyle = PAL.gold;
+    for (let i = 0; i < 4; i++) {
+      const a = i * TAU / 4 + 0.78;
+      g.beginPath(); g.arc(x + Math.cos(a) * s * 0.29, y + Math.sin(a) * s * 0.29, s * 0.032, 0, TAU); g.fill();
+    }
+  }
   g.save(); g.translate(x, y);
   if (!upright) g.rotate(angle);
   g.lineJoin = "round"; g.lineCap = "round"; g.strokeStyle = PAL.outline; g.lineWidth = lw;
@@ -1601,11 +1655,123 @@ function drawCannonDevice(g, x, y, s, type, angle) {
     case "prism": // призма с тремя лучами (без вращения)
       g.strokeStyle = C; g.lineWidth = lw;
       g.beginPath(); g.moveTo(0, -s * 0.04); g.lineTo(0, -s * 0.46); g.moveTo(0, -s * 0.04); g.lineTo(s * 0.36, s * 0.16); g.moveTo(0, -s * 0.04); g.lineTo(-s * 0.36, s * 0.16); g.stroke();
-      g.fillStyle = radial(g, -s * 0.05, -s * 0.16, s * 0.02, 0, 0, s * 0.3, [[0, "#ffffff"], [1, C]]);
+      g.fillStyle = radial(g, -s * 0.06, -s * 0.18, s * 0.02, 0, -s * 0.02, s * 0.3, [[0, shade(C, 1.18)], [0.45, C], [1, shade(C, 0.68)]]);
       g.beginPath(); g.moveTo(0, -s * 0.3); g.lineTo(s * 0.2, s * 0.1); g.lineTo(-s * 0.2, s * 0.1); g.closePath(); g.fill(); g.strokeStyle = PAL.outline; g.lineWidth = lw; g.stroke();
       break;
   }
+  cannonDetail(g, s, shape, C, lv, lw);
   g.restore();
+}
+/* Мелкая доводка ствола: блики, ободки, накладки за уровень.
+   Вызывается внутри повёрнутой системы координат пушки. */
+function cannonDetail(g, s, shape, C, lv, lw) {
+  g.lineJoin = "round"; g.lineCap = "round";
+  const steel = "#c2ccdd", dk = "rgba(10,18,34,0.45)";
+  switch (shape) {
+    case "sling":
+      g.strokeStyle = "rgba(255,255,255,0.35)"; g.lineWidth = Math.max(1, s * 0.016);
+      g.beginPath(); g.moveTo(s * 0.08, s * 0.04); g.lineTo(s * 0.2, -s * 0.01); g.stroke();
+      g.fillStyle = "#5f3d22";
+      g.beginPath(); g.ellipse(s * 0.3, 0, s * 0.05, s * 0.075, 0, 0, TAU); g.fill();
+      g.fillStyle = "rgba(255,255,255,0.5)";
+      g.beginPath(); g.arc(s * 0.28, -s * 0.02, s * 0.02, 0, TAU); g.fill();
+      break;
+    case "crystal":
+      g.strokeStyle = "rgba(255,255,255,0.6)"; g.lineWidth = Math.max(1, s * 0.016);
+      g.beginPath(); g.moveTo(0, -s * 0.38); g.lineTo(0, s * 0.08);
+      g.moveTo(-s * 0.1, -s * 0.12); g.lineTo(s * 0.1, -s * 0.12); g.stroke();
+      g.fillStyle = "rgba(255,255,255,0.85)";
+      for (const pnt of [[s * 0.2, -s * 0.3], [-s * 0.22, -s * 0.2]]) {
+        g.beginPath(); g.arc(pnt[0], pnt[1], s * 0.022, 0, TAU); g.fill();
+      }
+      break;
+    case "mortar":
+      g.strokeStyle = steel; g.lineWidth = Math.max(1, s * 0.022);
+      g.beginPath(); g.moveTo(s * 0.1, -s * 0.15); g.lineTo(s * 0.1, s * 0.15);
+      g.moveTo(s * 0.22, -s * 0.15); g.lineTo(s * 0.22, s * 0.15); g.stroke();
+      g.strokeStyle = "rgba(255,255,255,0.3)"; g.lineWidth = Math.max(1, s * 0.02);
+      g.beginPath(); g.moveTo(s * 0.05, -s * 0.1); g.lineTo(s * 0.32, -s * 0.1); g.stroke();
+      g.strokeStyle = "rgba(255,255,255,0.4)"; g.lineWidth = Math.max(1, s * 0.02);
+      g.beginPath(); g.arc(s * 0.36, 0, s * 0.13, Math.PI * 1.05, Math.PI * 1.8); g.stroke();
+      break;
+    case "rifle":
+      g.fillStyle = "rgba(160,220,255,0.75)";
+      g.beginPath(); g.arc(s * 0.16, -s * 0.05, s * 0.045, 0, TAU); g.fill();
+      g.fillStyle = "rgba(255,255,255,0.9)";
+      g.beginPath(); g.arc(s * 0.145, -s * 0.065, s * 0.018, 0, TAU); g.fill();
+      g.strokeStyle = steel; g.lineWidth = Math.max(1, s * 0.018);
+      g.beginPath(); g.moveTo(s * 0.46, -s * 0.045); g.lineTo(s * 0.46, s * 0.045); g.stroke();
+      break;
+    case "gatling":
+      g.fillStyle = "#15171f";
+      for (const dy of [-s * 0.13, 0, s * 0.13]) { g.beginPath(); g.arc(s * 0.46, dy, s * 0.032, 0, TAU); g.fill(); }
+      g.strokeStyle = "rgba(255,255,255,0.28)"; g.lineWidth = Math.max(1, s * 0.016);
+      for (const dy of [-s * 0.13, 0, s * 0.13]) { g.beginPath(); g.moveTo(s * 0.1, dy - s * 0.025); g.lineTo(s * 0.42, dy - s * 0.025); g.stroke(); }
+      break;
+    case "coil":
+      g.strokeStyle = "rgba(255,255,255,0.3)"; g.lineWidth = Math.max(1, s * 0.014);
+      for (let i = 0; i < 3; i++) { g.beginPath(); g.moveTo(-s * 0.1 + i * s * 0.02, s * 0.02 - i * s * 0.08); g.lineTo(s * 0.1 - i * s * 0.02, s * 0.02 - i * s * 0.08); g.stroke(); }
+      g.fillStyle = "rgba(191,233,255,0.9)";
+      g.beginPath(); g.arc(s * 0.16, -s * 0.4, s * 0.022, 0, TAU); g.fill();
+      g.beginPath(); g.arc(-s * 0.14, -s * 0.42, s * 0.022, 0, TAU); g.fill();
+      g.strokeStyle = "#6a7690"; g.lineWidth = Math.max(1, s * 0.02);
+      g.beginPath(); g.moveTo(-s * 0.12, s * 0.14); g.lineTo(s * 0.12, s * 0.14); g.stroke();
+      break;
+    case "sprayer":
+      g.strokeStyle = "rgba(255,255,255,0.4)"; g.lineWidth = Math.max(1, s * 0.02);
+      g.beginPath(); g.arc(0, 0, s * 0.14, Math.PI * 0.95, Math.PI * 1.5); g.stroke();
+      g.strokeStyle = "#2a2e3d"; g.lineWidth = Math.max(1, s * 0.026);
+      g.beginPath(); g.moveTo(s * 0.18, -s * 0.05); g.quadraticCurveTo(s * 0.24, -s * 0.16, s * 0.34, -s * 0.1); g.stroke();
+      g.fillStyle = shade(C, 1.25);
+      g.beginPath(); g.arc(s * 0.54, s * 0.04, s * 0.03, 0, TAU); g.fill();
+      break;
+    case "blower":
+      g.strokeStyle = "rgba(120,190,220,0.55)"; g.lineWidth = Math.max(1, s * 0.016);
+      g.beginPath(); g.moveTo(s * 0.18, -s * 0.13); g.lineTo(s * 0.18, s * 0.13);
+      g.moveTo(s * 0.32, -s * 0.18); g.lineTo(s * 0.32, s * 0.18); g.stroke();
+      g.fillStyle = "rgba(255,255,255,0.85)";
+      g.beginPath(); g.arc(s * 0.5, -s * 0.06, s * 0.022, 0, TAU); g.fill();
+      g.beginPath(); g.arc(s * 0.54, s * 0.08, s * 0.016, 0, TAU); g.fill();
+      break;
+    case "double":
+      g.strokeStyle = steel; g.lineWidth = Math.max(1, s * 0.02);
+      g.beginPath(); g.moveTo(s * 0.2, -s * 0.14); g.lineTo(s * 0.2, s * 0.14); g.stroke();
+      g.strokeStyle = "rgba(255,255,255,0.3)"; g.lineWidth = Math.max(1, s * 0.016);
+      g.beginPath(); g.moveTo(s * 0.06, -s * 0.12); g.lineTo(s * 0.42, -s * 0.12);
+      g.moveTo(s * 0.06, s * 0.06); g.lineTo(s * 0.42, s * 0.06); g.stroke();
+      break;
+    case "rails":
+      g.strokeStyle = "rgba(255,255,255,0.75)"; g.lineWidth = Math.max(1, s * 0.014);
+      for (const t of [0.26, 0.4]) {
+        g.beginPath(); g.moveTo(s * t, -s * 0.11); g.lineTo(s * (t + 0.04), -s * 0.02);
+        g.lineTo(s * (t - 0.02), s * 0.02); g.lineTo(s * (t + 0.03), s * 0.11); g.stroke();
+      }
+      g.fillStyle = "#2a3247";
+      for (const t of [0.12, 0.2]) { rr(g, s * t, -s * 0.2, s * 0.05, s * 0.4, s * 0.02); g.fill(); }
+      break;
+    case "flame":
+      g.strokeStyle = steel; g.lineWidth = Math.max(1, s * 0.02);
+      g.beginPath(); g.moveTo(s * 0.1, -s * 0.09); g.lineTo(s * 0.1, s * 0.09);
+      g.moveTo(s * 0.22, -s * 0.09); g.lineTo(s * 0.22, s * 0.09); g.stroke();
+      g.fillStyle = "rgba(255,240,190,0.95)";
+      g.beginPath(); g.moveTo(s * 0.36, -s * 0.03); g.lineTo(s * 0.44, 0); g.lineTo(s * 0.36, s * 0.03); g.closePath(); g.fill();
+      g.fillStyle = "#ffb347";
+      g.beginPath(); g.arc(s * 0.3, -s * 0.13, s * 0.025, 0, TAU); g.fill();
+      break;
+    case "prism":
+      g.fillStyle = "rgba(255,255,255,0.22)";
+      g.beginPath(); g.moveTo(-s * 0.02, -s * 0.27); g.lineTo(-s * 0.14, s * 0.06); g.lineTo(-s * 0.05, s * 0.06); g.closePath(); g.fill();
+      g.strokeStyle = "rgba(255,255,255,0.5)"; g.lineWidth = Math.max(1, s * 0.016);
+      g.beginPath(); g.moveTo(0, -s * 0.26); g.lineTo(0, s * 0.08);
+      g.moveTo(-s * 0.14, s * 0.06); g.lineTo(s * 0.14, s * 0.06); g.stroke();
+      g.fillStyle = "rgba(255,255,255,0.9)";
+      g.beginPath(); g.arc(0, -s * 0.44, s * 0.025, 0, TAU); g.fill();
+      g.beginPath(); g.arc(s * 0.34, s * 0.15, s * 0.02, 0, TAU); g.fill();
+      g.beginPath(); g.arc(-s * 0.34, s * 0.15, s * 0.02, 0, TAU); g.fill();
+      break;
+  }
+  // накладки за уровень: стальной хомут, затем золотое кольцо у дула
+  g.strokeStyle = dk;
 }
 
 /* ---------- Враги ---------- */
