@@ -447,7 +447,9 @@ function genEndlessWave(n) {
   // спецмонстры вводятся постепенно
   if (n >= 3) spawns.push({ type: "healer", count: 1 + Math.floor(n / 6), gap: 2, delay: 0.5 });
   if (n >= 4) spawns.push({ type: "booster", count: 1 + Math.floor(n / 7), gap: 2, delay: 1 });
-  if (n >= 5) spawns.push({ type: "breaker", count: 1 + Math.floor(n / 5), gap: 1.6, delay: 1.5 });
+  // Черемш не больше трёх и идут они с шагом 3 с: при прежних 1+n/5 с шагом 1.6 к 25-й волне
+  // их было пять подряд, зоны атаки накладывались и урон складывался — башня падала за секунды
+  if (n >= 5) spawns.push({ type: "breaker", count: Math.min(3, 1 + Math.floor(n / 8)), gap: 3.0, delay: 1.5 });
   if (n >= 3 && n % 3 === 0) spawns.push({ type: "boss", count: 1 + Math.floor(n / 6), gap: 1.5, delay: 1 });
   return { spawns };
 }
