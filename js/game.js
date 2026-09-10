@@ -819,7 +819,7 @@ function killEnemy(e, x, y) {
   G.comboTimer = 2.4;
   const mult = comboMult();
   G.score += Math.round(e.base.score * mult);
-  if (G.combo > 1 && G.combo % 3 === 0) Sound.play("combo");
+  if (G.combo > 1 && G.combo % 3 === 0) Sound.play("combo", G.combo);
   Sound.play("pop");
   addAmount(x, y - 12 * view.ui, "+", reward, "gold", PAL.gold, F(16), 1.0);
   const n = e.base.boss ? 22 : 10;
