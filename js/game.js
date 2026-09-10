@@ -1266,8 +1266,9 @@ function renderMain() {
   ctx.clearRect(0, 0, view.w, view.h);
   // фон
   const bg = ctx.createLinearGradient(0, 0, 0, view.h);
-  bg.addColorStop(0, "#12203a"); bg.addColorStop(1, "#0b1322");
+  bg.addColorStop(0, "#27507f"); bg.addColorStop(0.5, "#1f4560"); bg.addColorStop(1, "#1a3d44");
   ctx.fillStyle = bg; ctx.fillRect(0, 0, view.w, view.h);
+  drawBackdrop(G.clock || performance.now() / 1000);
 
   if (G.state === "menu") { drawMenu(); return; }
   if (G.state === "levels") { drawLevels(); return; }
@@ -1299,6 +1300,92 @@ function renderMain() {
   if (G.state === "win") drawResult(true);
   if (G.state === "gameover") drawResult(false);
   if (G.adPlaying) drawAdCurtain();
+}
+
+/* Окружение вокруг поля: тёплое свечение, дальние холмы, облака и мошкара.
+   Всё крупное и медленное — фон оживает, но не спорит с игрой. */
+function drawBackdrop(t) {
+  const b = view.board;
+  const bx = b.w ? b.x + b.w / 2 : view.w / 2, by = b.h ? b.y + b.h / 2 : view.h * 0.5;
+  // солнце в углу — источник тёплого света на сцене
+  const sx = view.w * 0.88, sy = view.h * 0.12;
+  const sun = ctx.createRadialGradient(sx, sy, 0, sx, sy, Math.min(view.w, view.h) * 0.45);
+  sun.addColorStop(0, "rgba(255,231,160,0.38)");
+  sun.addColorStop(0.35, "rgba(255,208,135,0.13)");
+  sun.addColorStop(1, "rgba(255,200,120,0)");
+  ctx.fillStyle = sun; ctx.fillRect(0, 0, view.w, view.h);
+  // дальние холмы с подсвеченным гребнем и рощами по склону
+  const hy = view.h * 0.42;
+  for (let layer = 0; layer < 2; layer++) {
+    const amp = view.h * (0.05 - layer * 0.015), base = hy + layer * view.h * 0.12;
+    const crest = [];
+    const steps = 16;
+    for (let i = 0; i <= steps; i++) {
+      const x = view.w * i / steps;
+      crest.push({ x: x, y: base + Math.sin(i * 0.9 + layer * 2.1) * amp + Math.sin(i * 2.3 + layer) * amp * 0.4 });
+    }
+    ctx.fillStyle = layer ? "rgba(58,126,92,0.66)" : "rgba(40,92,86,0.52)";
+    ctx.beginPath(); ctx.moveTo(0, view.h); ctx.lineTo(crest[0].x, crest[0].y);
+    for (const pt of crest) ctx.lineTo(pt.x, pt.y);
+    ctx.lineTo(view.w, view.h); ctx.closePath(); ctx.fill();
+    // подсветка гребня
+    ctx.strokeStyle = layer ? "rgba(150,215,160,0.18)" : "rgba(140,200,170,0.13)";
+    ctx.lineWidth = Math.max(1, 2 * view.ui); ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(crest[0].x, crest[0].y);
+    for (const pt of crest) ctx.lineTo(pt.x, pt.y);
+    ctx.stroke();
+    // деревья по гребню — вид обрамляется рощами, а поле остаётся в центре
+    const trees = 26, tone = layer ? "rgba(32,86,62,0.72)" : "rgba(26,66,64,0.58)";
+    for (let i = 0; i < trees; i++) {
+      const tx = view.w * (i + 0.5) / trees;
+      const seg = Math.min(steps - 1, Math.floor(tx / view.w * steps));
+      const f = (tx - crest[seg].x) / (crest[seg + 1].x - crest[seg].x || 1);
+      const ty = lerp(crest[seg].y, crest[seg + 1].y, f) + view.h * 0.004;
+      const th = view.h * (0.035 + ((i * 7) % 5) * 0.004) * (layer ? 1 : 0.8);
+      ctx.fillStyle = tone;
+      ctx.beginPath(); ctx.moveTo(tx, ty - th * 1.5);
+      ctx.lineTo(tx + th * 0.42, ty + th * 0.1);
+      ctx.lineTo(tx - th * 0.42, ty + th * 0.1);
+      ctx.closePath(); ctx.fill();
+      if ((i * 3) % 4 === 0) {
+        ctx.beginPath(); ctx.ellipse(tx + th * 0.7, ty, th * 0.38, th * 0.45, 0, 0, TAU); ctx.fill();
+      }
+    }
+  }
+  // облака: каждый ком — мягкое пятно с растушёванным краем, иначе на тёмном небе
+  // они читаются как серые блины
+  for (let i = 0; i < 4; i++) {
+    const sp = 5 + i * 2.5, w = view.w * (0.16 + (i % 3) * 0.05);
+    const x = ((t * sp + i * 520) % (view.w + w * 2)) - w;
+    const y = view.h * (0.07 + (i % 4) * 0.06);
+    const a0 = 0.07 + (i % 2) * 0.025;
+    for (const pt of [[0, 0, 1], [0.3, -0.16, 0.8], [0.6, 0.04, 0.88], [0.86, -0.07, 0.62]]) {
+      const px = x + w * pt[0], py = y + w * pt[1], rad = w * 0.3 * pt[2];
+      const puff = ctx.createRadialGradient(px, py - rad * 0.15, 0, px, py, rad);
+      puff.addColorStop(0, "rgba(255,255,255," + a0.toFixed(3) + ")");
+      puff.addColorStop(0.55, "rgba(255,255,255," + (a0 * 0.6).toFixed(3) + ")");
+      puff.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.save(); ctx.translate(px, py); ctx.scale(1, 0.52); ctx.translate(-px, -py);
+      ctx.fillStyle = puff;
+      ctx.beginPath(); ctx.arc(px, py, rad, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+  }
+  // тёплое свечение под полем — доска выглядит освещённой, а не брошенной в темноте
+  const glow = ctx.createRadialGradient(bx, by, Math.min(view.w, view.h) * 0.08, bx, by, Math.max(view.w, view.h) * 0.72);
+  glow.addColorStop(0, "rgba(120,190,150,0.22)");
+  glow.addColorStop(0.5, "rgba(90,160,150,0.10)");
+  glow.addColorStop(1, "rgba(10,20,35,0)");
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, view.w, view.h);
+  // мошкара в тёплом свете
+  for (let i = 0; i < 14; i++) {
+    const seed = i * 1.7;
+    const x = view.w * (0.03 + ((i * 7) % 20) / 20 * 0.94) + Math.sin(t * 0.35 + seed) * view.w * 0.03;
+    const y = view.h * (0.1 + ((i * 11) % 17) / 17 * 0.82) + Math.cos(t * 0.42 + seed * 1.3) * view.h * 0.035;
+    const a = 0.14 + Math.abs(Math.sin(t * 0.8 + seed)) * 0.22;
+    ctx.fillStyle = "rgba(255,232,160," + a.toFixed(3) + ")";
+    ctx.beginPath(); ctx.arc(x, y, Math.max(1, view.ui * (1.4 + (i % 3) * 0.6)), 0, TAU); ctx.fill();
+  }
 }
 
 /* ---------- Текст ---------- */
@@ -1380,19 +1467,13 @@ function paintBoard(g) {
       g.fillRect(cx(c), cy(r), b.cell + 1, b.cell + 1);
     }
   }
-  // штрихи травы поверх клеток — поле выглядит газоном, а не заливкой
-  g.lineCap = "round";
+  // мягкие светлые прогалины — газон дышит, но не рябит
   for (let r = 0; r < GRID_ROWS; r++) for (let c = 0; c < GRID_COLS; c++) {
     const h = cellHash(c * 3 + 1, r * 5 + 2);
-    g.strokeStyle = ((h >>> 7) & 1) ? "rgba(255,255,255,0.055)" : "rgba(10,40,20,0.06)";
-    g.lineWidth = Math.max(1, b.cell * 0.028);
-    for (let k = 0; k < 3; k++) {
-      const hx = (h >>> (k * 5)) & 31, hy = (h >>> (k * 5 + 3)) & 31;
-      const bx = cx(c + 0.15 + (hx / 31) * 0.7), by = cy(r + 0.15 + (hy / 31) * 0.7);
-      g.beginPath(); g.moveTo(bx, by + b.cell * 0.05);
-      g.quadraticCurveTo(bx + b.cell * 0.02, by, bx + b.cell * 0.04, by - b.cell * 0.06);
-      g.stroke();
-    }
+    if ((h >>> 7) % 3) continue;
+    const px = cx(c + 0.25 + ((h >>> 2 & 15) / 15) * 0.5), py = cy(r + 0.25 + ((h >>> 11 & 15) / 15) * 0.5);
+    g.fillStyle = ((h >>> 9) & 1) ? "rgba(255,255,255,0.05)" : "rgba(12,44,24,0.05)";
+    g.beginPath(); g.ellipse(px, py, b.cell * 0.3, b.cell * 0.2, (h % 6) * 0.5, 0, TAU); g.fill();
   }
   // выгоревшие и густые пятна поверх шахматки
   for (let i = 0; i < 9; i++) {
@@ -2956,7 +3037,7 @@ function drawToast() {
 function drawVignette() {
   const g = ctx.createRadialGradient(view.w / 2, view.h * 0.46, Math.min(view.w, view.h) * 0.34, view.w / 2, view.h / 2, Math.max(view.w, view.h) * 0.72);
   g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(1, "rgba(0,0,0,0.26)");
+  g.addColorStop(1, "rgba(0,0,0,0.17)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, view.w, view.h);
 }
 
