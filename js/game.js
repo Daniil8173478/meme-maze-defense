@@ -1451,22 +1451,38 @@ function textClip(str, x, y, maxW, size, color, align) {
   }
   text(out, x, y, s, color, align || "left");
 }
+/* Кнопка-«таблетка»: тёмная фаска снизу, градиентная лицевая часть и блик сверху.
+   Нажимаемая область остаётся прежней высоты, чтобы попадания не изменились. */
 function btn(id, x, y, w, h, label, opt) {
   opt = opt || {};
-  const col = opt.color || PAL.good;
+  const col = opt.disabled ? "#3a4763" : (opt.color || PAL.good);
+  const rad = Math.min(12 * view.ui, h * 0.34);
+  const bevel = Math.min(4 * view.ui, h * 0.13);
+  const fh = h - bevel;
   ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.35)"; ctx.shadowBlur = 8 * view.ui; ctx.shadowOffsetY = 3 * view.ui;
-  rr(ctx, x, y, w, h, 12 * view.ui);
-  ctx.fillStyle = opt.disabled ? "#3a4763" : col; ctx.fill();
+  ctx.shadowColor = "rgba(0,0,0,0.32)"; ctx.shadowBlur = 8 * view.ui; ctx.shadowOffsetY = 3 * view.ui;
+  rr(ctx, x, y + bevel, w, fh, rad);
+  ctx.fillStyle = shade(col, 0.62); ctx.fill();
   ctx.restore();
-  if (!opt.disabled) {
-    rr(ctx, x + 2, y + 2, w - 4, h * 0.42, 10 * view.ui);
-    ctx.fillStyle = "rgba(255,255,255,0.18)"; ctx.fill();
-  }
-  const tc = opt.disabled ? "#7d8aa5" : (opt.textColor || "#0e1626");
-  if (label) text(label, x + w / 2, y + h / 2, opt.fs || F(17), tc, "center", "middle");
+  // лицевая часть
+  const gr = ctx.createLinearGradient(0, y, 0, y + fh);
+  gr.addColorStop(0, shade(col, opt.disabled ? 1.06 : 1.14));
+  gr.addColorStop(1, shade(col, opt.disabled ? 0.94 : 0.9));
+  rr(ctx, x, y, w, fh, rad); ctx.fillStyle = gr; ctx.fill();
+  ctx.strokeStyle = "rgba(9,18,34,0.28)"; ctx.lineWidth = Math.max(1, view.ui); ctx.stroke();
+  // блик
+  rr(ctx, x + rad * 0.3, y + Math.max(1.5, 2 * view.ui), w - rad * 0.6, fh * 0.42, rad * 0.7);
+  ctx.fillStyle = opt.disabled ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.2)"; ctx.fill();
+  const tc = opt.disabled ? "#8593ad" : (opt.textColor || "#0e1626");
+  if (label) text(label, x + w / 2, y + fh / 2, opt.fs || F(17), tc, "center", "middle");
   G.hot.push({ id, x, y, w, h, disabled: !!opt.disabled });
   return { x, y, w, h };
+}
+/* Тёмная плашка под значение — жизни, золото, счёт. */
+function chip(x, y, w, h, accent) {
+  rr(ctx, x, y, w, h, h * 0.42);
+  ctx.fillStyle = "rgba(8,16,30,0.42)"; ctx.fill();
+  ctx.strokeStyle = accent || "rgba(255,255,255,0.09)"; ctx.lineWidth = Math.max(1, view.ui); ctx.stroke();
 }
 
 /* ---------- Поле / лабиринт ---------- */
@@ -1608,20 +1624,28 @@ function paintRoad(g) {
 function drawBoard() {
   const b = view.board;
   ctx.drawImage(boardArt(), b.x, b.y, b.w, b.h);
-  // подсветка ячеек под строительство
+  // подсказка «куда можно ставить»: уголки по клеткам, чтобы поле не заливалось зелёным
   if (G.state === "playing" && G.selType) {
-    ctx.lineWidth = 2 * view.ui;
+    const tick = b.cell * 0.2, inset = b.cell * 0.14;
+    ctx.strokeStyle = "rgba(6,214,160,0.5)"; ctx.lineWidth = Math.max(1.5, 2 * view.ui); ctx.lineCap = "round";
+    ctx.beginPath();
     for (let r = 0; r < GRID_ROWS; r++) for (let c = 0; c < GRID_COLS; c++) {
-      if (buildable(c, r)) {
-        rr(ctx, cx(c) + 3, cy(r) + 3, b.cell - 6, b.cell - 6, 6 * view.ui);
-        ctx.fillStyle = "rgba(6,214,160,0.12)"; ctx.fill();
-        ctx.strokeStyle = "rgba(6,214,160,0.35)"; ctx.stroke();
-      }
+      if (!buildable(c, r)) continue;
+      const x0 = cx(c) + inset, y0 = cy(r) + inset;
+      const x1 = cx(c + 1) - inset, y1 = cy(r + 1) - inset;
+      ctx.moveTo(x0, y0 + tick); ctx.lineTo(x0, y0); ctx.lineTo(x0 + tick, y0);
+      ctx.moveTo(x1 - tick, y0); ctx.lineTo(x1, y0); ctx.lineTo(x1, y0 + tick);
+      ctx.moveTo(x0, y1 - tick); ctx.lineTo(x0, y1); ctx.lineTo(x0 + tick, y1);
+      ctx.moveTo(x1 - tick, y1); ctx.lineTo(x1, y1); ctx.lineTo(x1, y1 - tick);
     }
-    // предпросмотр радиуса
+    ctx.stroke();
+    // клетка под курсором и радиус будущей башни
     if (G.hoverCell && buildable(G.hoverCell.c, G.hoverCell.r)) {
       const st = TOWERS[G.selType].levels[0];
       const px = cx(G.hoverCell.c + 0.5), py = cy(G.hoverCell.r + 0.5);
+      rr(ctx, cx(G.hoverCell.c) + 3, cy(G.hoverCell.r) + 3, b.cell - 6, b.cell - 6, 6 * view.ui);
+      ctx.fillStyle = "rgba(6,214,160,0.22)"; ctx.fill();
+      ctx.strokeStyle = "rgba(6,214,160,0.8)"; ctx.lineWidth = 2 * view.ui; ctx.stroke();
       ctx.beginPath(); ctx.arc(px, py, st.range * b.cell, 0, TAU);
       ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fill();
       ctx.strokeStyle = TOWERS[G.selType].color; ctx.lineWidth = 2 * view.ui; ctx.stroke();
@@ -3297,19 +3321,30 @@ function drawStar(g, x, y, r, filled) {
 /* ---------- HUD ---------- */
 function drawHUD() {
   const h = view.hudH;
-  ctx.fillStyle = PAL.panel; ctx.fillRect(0, 0, view.w, h);
-  ctx.fillStyle = "rgba(255,255,255,0.05)"; ctx.fillRect(0, 0, view.w, h * 0.35);
-  const pad = 12 * view.ui;
+  const bar = ctx.createLinearGradient(0, 0, 0, h);
+  bar.addColorStop(0, shade(PAL.panel, 1.18));
+  bar.addColorStop(1, shade(PAL.panel, 0.82));
+  ctx.fillStyle = bar; ctx.fillRect(0, 0, view.w, h);
+  ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fillRect(0, 0, view.w, Math.max(1, 2 * view.ui));
+  ctx.fillStyle = "rgba(6,12,24,0.45)"; ctx.fillRect(0, h - Math.max(1, 2 * view.ui), view.w, Math.max(1, 2 * view.ui));
+  const pad = 12 * view.ui, ch = h * 0.56, cy2 = (h - ch) / 2;
   // жизни
-  drawHeart(ctx, pad + 10 * view.ui, h / 2, 10 * view.ui, PAL.danger);
-  text(String(G.lives), pad + 26 * view.ui, h / 2, F(18), PAL.text, "left");
+  chip(pad, cy2, 62 * view.ui, ch, "rgba(239,71,111,0.35)");
+  drawHeart(ctx, pad + 16 * view.ui, h / 2, 9 * view.ui, PAL.danger);
+  text(String(G.lives), pad + 30 * view.ui, h / 2, F(17), PAL.text, "left");
   // золото
-  const gx = pad + 78 * view.ui;
-  drawCoin(ctx, gx, h / 2, 10 * view.ui);
-  text(String(G.gold), gx + 16 * view.ui, h / 2, F(18), PAL.gold, "left");
+  const gx = pad + 72 * view.ui;
+  chip(gx, cy2, 84 * view.ui, ch, "rgba(255,209,102,0.32)");
+  drawCoin(ctx, gx + 16 * view.ui, h / 2, 9 * view.ui);
+  text(String(G.gold), gx + 30 * view.ui, h / 2, F(17), PAL.gold, "left");
   // центр — счёт
   text(L("score") + " " + G.score, view.w / 2, h * 0.34, F(15), PAL.text);
-  if (G.combo > 1) text(L("combo") + " x" + comboMult().toFixed(1).replace(/\.0$/, ""), view.w / 2, h * 0.72, F(14), PAL.gold);
+  if (G.combo > 1) {
+    const ct = L("combo") + " x" + comboMult().toFixed(1).replace(/\.0$/, "");
+    const cw = textW(ct, F(14)) + 18 * view.ui;
+    chip(view.w / 2 - cw / 2, h * 0.72 - 9 * view.ui, cw, 18 * view.ui, "rgba(255,209,102,0.4)");
+    text(ct, view.w / 2, h * 0.72, F(14), PAL.gold);
+  }
   // правые кнопки
   const bs = h * 0.66, by = (h - bs) / 2;
   let bx = view.w - pad - bs;
@@ -3364,8 +3399,12 @@ function drawWaveInfo() {
 /* ---------- Нижний док / панель башни ---------- */
 function drawDock() {
   const dh = view.dockH, dy = view.h - dh;
-  ctx.fillStyle = PAL.panel; ctx.fillRect(0, dy, view.w, dh);
-  ctx.fillStyle = "rgba(255,255,255,0.05)"; ctx.fillRect(0, dy, view.w, 3 * view.ui);
+  const bar = ctx.createLinearGradient(0, dy, 0, view.h);
+  bar.addColorStop(0, shade(PAL.panel, 1.12));
+  bar.addColorStop(1, shade(PAL.panel, 0.8));
+  ctx.fillStyle = bar; ctx.fillRect(0, dy, view.w, dh);
+  ctx.fillStyle = "rgba(6,12,24,0.4)"; ctx.fillRect(0, dy, view.w, Math.max(1, 2 * view.ui));
+  ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fillRect(0, dy + Math.max(1, 2 * view.ui), view.w, Math.max(1, 2 * view.ui));
 
   if (G.selTower) { drawTowerPanel(dy, dh); return; }
 
@@ -3381,30 +3420,66 @@ function drawDock() {
     const cost = def.levels[0].cost;
     const afford = G.gold >= cost;
     const sel = G.selType === type;
-    rr(ctx, x, y, bw, bh, 12 * view.ui);
-    ctx.fillStyle = sel ? PAL.panel2 : "#1f2f4c"; ctx.fill();
-    ctx.strokeStyle = sel ? def.color : RARITY[def.rarity].color; ctx.lineWidth = (sel ? 3 : 2) * view.ui; ctx.stroke();
-    ctx.globalAlpha = afford ? 1 : 0.5;
+    const rad = 12 * view.ui;
+    // карточка: градиент, цветная полоса редкости сверху, свечение у выбранной
+    if (sel) {
+      ctx.save(); ctx.shadowColor = def.color; ctx.shadowBlur = 12 * view.ui;
+      rr(ctx, x, y, bw, bh, rad); ctx.fillStyle = "rgba(0,0,0,0.001)"; ctx.fill(); ctx.restore();
+    }
+    const cg = ctx.createLinearGradient(0, y, 0, y + bh);
+    cg.addColorStop(0, sel ? shade(PAL.panel2, 1.25) : "#27395c");
+    cg.addColorStop(1, sel ? shade(PAL.panel2, 0.85) : "#1a2843");
+    rr(ctx, x, y, bw, bh, rad); ctx.fillStyle = cg; ctx.fill();
+    ctx.save();
+    rr(ctx, x, y, bw, bh, rad); ctx.clip();
+    ctx.fillStyle = RARITY[def.rarity].color;
+    ctx.fillRect(x, y, bw, Math.max(2, 3 * view.ui));
+    ctx.restore();
+    ctx.strokeStyle = sel ? def.color : "rgba(255,255,255,0.12)"; ctx.lineWidth = (sel ? 3 : 1.5) * view.ui;
+    rr(ctx, x, y, bw, bh, rad); ctx.stroke();
+    ctx.globalAlpha = afford ? 1 : 0.45;
     drawTowerIcon(ctx, x + bw * 0.22, y + bh * 0.42, Math.min(bw, bh) * 0.42, type);
     const tx = x + bw * 0.44, maxTW = bw * 0.56 - 8 * view.ui;
     // в узкой ячейке описание не помещается — оставляем только название и цену
     const showDesc = textW(cDesc(type), F(10)) <= maxTW;
     textClip(cName(type), tx, y + bh * (showDesc ? 0.32 : 0.40), maxTW, F(13), PAL.text);
     if (showDesc) textClip(cDesc(type), tx, y + bh * 0.55, maxTW, F(10), PAL.dim);
-    drawCoin(ctx, x + bw * 0.47, y + bh * 0.78, 7 * view.ui);
-    text(String(cost), x + bw * 0.55, y + bh * 0.78, F(13), afford ? PAL.gold : PAL.danger, "left");
+    const pw = textW(String(cost), F(13)) + 30 * view.ui, phh = 20 * view.ui;
+    chip(x + bw * 0.44, y + bh * 0.78 - phh / 2, pw, phh, afford ? "rgba(255,209,102,0.3)" : "rgba(239,71,111,0.35)");
+    drawCoin(ctx, x + bw * 0.44 + 12 * view.ui, y + bh * 0.78, 7 * view.ui);
+    text(String(cost), x + bw * 0.44 + 23 * view.ui, y + bh * 0.78, F(13), afford ? PAL.gold : PAL.danger, "left");
     ctx.globalAlpha = 1;
     G.hot.push({ id: "tw_" + type, x, y, w: bw, h: bh, disabled: false });
   }
 }
 function drawTowerPanel(dy, dh) {
   const tw = G.selTower, def = TOWERS[tw.type], st = def.levels[tw.level];
-  const pad = 8 * view.ui;
+  const pad = 10 * view.ui;
   const val = Math.floor(tw.invested * 0.6);
-  // строка информации
-  text(cName(tw.type) + " · " + L("lvl") + (tw.level + 1) + "    " + L("dmg") + " " + st.dmg + "  ·  " + L("range") + " " + st.range.toFixed(1) + "  ·  " + L("rate") + " " + st.rate.toFixed(1),
-    pad, dy + dh * 0.2, F(11), PAL.text, "left");
-  text(L("durab") + " " + Math.ceil(tw.hp) + "/" + tw.maxHp, pad, dy + dh * 0.42, F(11), tw.hp < tw.maxHp ? PAL.danger : PAL.good, "left");
+  const row = dy + dh * 0.26;
+  // иконка пушки и название с уровнем
+  drawTowerIcon(ctx, pad + dh * 0.2, row, dh * 0.34, tw.type);
+  const nx = pad + dh * 0.42;
+  text(cName(tw.type), nx, dy + dh * 0.17, F(13), PAL.text, "left");
+  const lvW = textW(L("lvl") + (tw.level + 1), F(11)) + 14 * view.ui;
+  chip(nx, dy + dh * 0.28, lvW, 17 * view.ui, RARITY[def.rarity].color + "88");
+  text(L("lvl") + (tw.level + 1), nx + lvW / 2, dy + dh * 0.365, F(11), RARITY[def.rarity].color);
+  // характеристики отдельными плашками
+  let sx = nx + lvW + 8 * view.ui;
+  for (const stat of [[L("dmg"), String(st.dmg), PAL.danger], [L("range"), st.range.toFixed(1), PAL.blue], [L("rate"), st.rate.toFixed(1), PAL.good]]) {
+    const label = stat[0] + " " + stat[1], sw = textW(label, F(11)) + 16 * view.ui;
+    if (sx + sw > view.w - pad) break;
+    chip(sx, dy + dh * 0.1, sw, 20 * view.ui, "rgba(255,255,255,0.1)");
+    text(stat[0] + " ", sx + 8 * view.ui, dy + dh * 0.21, F(11), PAL.dim, "left");
+    text(stat[1], sx + 8 * view.ui + textW(stat[0] + " ", F(11)), dy + dh * 0.21, F(11), stat[2], "left");
+    sx += sw + 6 * view.ui;
+  }
+  // прочность полоской
+  const hpw = Math.min(150 * view.ui, view.w - nx - pad * 2), hph = 8 * view.ui, hpy = dy + dh * 0.37;
+  const hk = clamp(tw.hp / tw.maxHp, 0, 1);
+  rr(ctx, sx, hpy, hpw, hph, hph / 2); ctx.fillStyle = "rgba(8,16,30,0.5)"; ctx.fill();
+  if (hk > 0) { rr(ctx, sx, hpy, hpw * hk, hph, hph / 2); ctx.fillStyle = hk > 0.5 ? PAL.good : hk > 0.25 ? PAL.gold : PAL.danger; ctx.fill(); }
+  text(L("durab") + " " + Math.ceil(tw.hp) + "/" + tw.maxHp, sx + hpw + 8 * view.ui, hpy + hph / 2, F(10), PAL.dim, "left", "middle");
   // ряд кнопок (3 или 4)
   const btns = [];
   if (tw.level < 2) { const uc = def.levels[tw.level + 1].cost; btns.push({ id: "upg", label: L("upgrade") + " " + uc, color: G.gold >= uc ? PAL.good : "#3a4763", tc: "#0e1626", dis: G.gold < uc }); }
@@ -3438,11 +3513,22 @@ function drawTutorial() {
 /* ---------- Оверлеи ---------- */
 function dim(a) { ctx.fillStyle = "rgba(6,12,24," + (a || 0.7) + ")"; ctx.fillRect(0, 0, view.w, view.h); }
 function panelBox(w, h) {
-  const x = view.w / 2 - w / 2, y = view.h / 2 - h / 2;
+  const x = view.w / 2 - w / 2, y = view.h / 2 - h / 2, rad = 20 * view.ui;
   ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 20 * view.ui;
-  rr(ctx, x, y, w, h, 20 * view.ui); ctx.fillStyle = PAL.panel; ctx.fill(); ctx.restore();
-  ctx.strokeStyle = PAL.panel2; ctx.lineWidth = 2 * view.ui; ctx.stroke();
+  ctx.shadowColor = "rgba(0,0,0,0.55)"; ctx.shadowBlur = 24 * view.ui; ctx.shadowOffsetY = 6 * view.ui;
+  rr(ctx, x, y, w, h, rad);
+  const gr = ctx.createLinearGradient(0, y, 0, y + h);
+  gr.addColorStop(0, shade(PAL.panel, 1.22));
+  gr.addColorStop(1, shade(PAL.panel, 0.82));
+  ctx.fillStyle = gr; ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,0.14)"; ctx.lineWidth = Math.max(1.5, 2 * view.ui); ctx.stroke();
+  // светлая кромка сверху — панель выглядит подсвеченной
+  ctx.save();
+  rr(ctx, x, y, w, h, rad); ctx.clip();
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fillRect(x, y, w, h * 0.16);
+  ctx.restore();
   return { x, y };
 }
 function drawPaused() {
