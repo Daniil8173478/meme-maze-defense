@@ -47,6 +47,8 @@ const PAL = {
   gem: "#4fd6c9"
 };
 const TOWER_HP = 120;
+/* Урон Черемши по башням в секунду. Было 24 — башня падала за 5 секунд, для 6+ слишком жёстко. */
+const BREAKER_DPS = 10;
 const SKINS = {
   classic: { name: "Классик", nameEn: "Classic", grassA: "#3f9150", grassB: "#37814a", path: "#cda269", pathEdge: "#a87f4b" },
   candy:   { name: "Карамель", nameEn: "Candy", grassA: "#7bc9b0", grassB: "#6bbaa2", path: "#f4b6c2", pathEdge: "#e08aa0" },
@@ -86,7 +88,8 @@ const TXT = {
     bookTitle: "Книга мемов", hp: "Здоровье", speed: "Скорость", ability: "Особенность", locked: "?",
     speedSlow: "медленно", speedMed: "средне", speedFast: "быстро", speedVFast: "очень быстро", langName: "Русский",
     notEnough: "Недостаточно монет", watchAd: "Смотреть рекламу", upgraded: "Улучшено!", repaired: "Починено!",
-    needAmt: "нужно "
+    needAmt: "нужно ",
+    autoRepair: "Авто-починка", perSec: "/сек", autoRepairHint: "Сама восстанавливает прочность"
   },
   en: {
     title: "Башни против Мемов", play: "Play", book: "Meme Book", squad: "Squad", shop: "Shop",
@@ -116,7 +119,8 @@ const TXT = {
     bookTitle: "Meme Book", hp: "Health", speed: "Speed", ability: "Trait", locked: "?",
     speedSlow: "slow", speedMed: "medium", speedFast: "fast", speedVFast: "very fast", langName: "English",
     notEnough: "Not enough coins", watchAd: "Watch ad", upgraded: "Upgraded!", repaired: "Repaired!",
-    needAmt: "need "
+    needAmt: "need ",
+    autoRepair: "Auto-repair", perSec: "/s", autoRepairHint: "Restores its durability by itself"
   }
 };
 function L(k) { const t = TXT[LANG] && TXT[LANG][k]; return t != null ? t : (TXT.ru[k] != null ? TXT.ru[k] : k); }
@@ -246,17 +250,18 @@ const ENEMIES = {
     bio: "Спокойный блоб. Лечит соседних монстров — бейте его первым!", bioEn: "A calm blob. Heals nearby monsters — take it out first!" },
   booster:{ name: "Ускоритель", nameEn: "Booster", hp: 60, speed: 1.3, reward: 14, score: 22, size: 0.38, cost: 1, color: "#e6a24e", draw: drawBooster, boost: { radius: 1.9, mult: 1.7 },
     bio: "Кот в наушниках. Задаёт ритм и ускоряет монстров вокруг.", bioEn: "A cat in headphones. Sets the beat and speeds up nearby monsters." },
-  breaker:{ name: "Черемша", nameEn: "Cheremsha", hp: 160, speed: 0.85, reward: 18, score: 28, size: 0.46, cost: 2, color: "#9a8f83", draw: drawBreaker, attack: { radius: 1.5, dps: 24 },
+  breaker:{ name: "Черемша", nameEn: "Cheremsha", hp: 160, speed: 0.85, reward: 18, score: 28, size: 0.46, cost: 2, color: "#9a8f83", draw: drawBreaker, attack: { radius: 1.5, dps: BREAKER_DPS },
     bio: "Пушистый и очень сердитый зайчик. Ломает ваши башни — чините их за золото!", bioEn: "A fluffy, very grumpy bunny. Smashes your towers — repair them for gold!" },
   boss:   { name: "Хант Вирус", nameEn: "Hunt Virus", hp: 360, speed: 0.82, reward: 55, score: 120, size: 0.66, cost: 5, color: "#d052a8", draw: drawBoss, boss: true,
     bio: "Огромный рогатый босс с короной. Очень много здоровья.", bioEn: "A huge horned boss with a crown. Tons of HP." }
 };
 
 /* ---------- Редкости пушек ---------- */
+/* regen — авто-починка, прочности в секунду. Есть только у мифических и легендарных. */
 const RARITY = {
-  rare:   { name: "Редкая",      nameEn: "Rare",      color: "#4da3ff", order: 0, buy: 150,  dupCoins: 25 },
-  mythic: { name: "Мифическая",  nameEn: "Mythic",    color: "#b06bff", order: 1, buy: 500,  dupCoins: 70 },
-  legend: { name: "Легендарная", nameEn: "Legendary", color: "#ffb020", order: 2, buy: 1500, dupCoins: 200 }
+  rare:   { name: "Редкая",      nameEn: "Rare",      color: "#4da3ff", order: 0, buy: 150,  dupCoins: 25,  regen: 0 },
+  mythic: { name: "Мифическая",  nameEn: "Mythic",    color: "#b06bff", order: 1, buy: 500,  dupCoins: 70,  regen: 2 },
+  legend: { name: "Легендарная", nameEn: "Legendary", color: "#ffb020", order: 2, buy: 1500, dupCoins: 200, regen: 3 }
 };
 const RARITY_ORDER = ["rare", "mythic", "legend"];
 
@@ -446,8 +451,12 @@ function genEndlessWave(n) {
   if (n >= 3 && n % 3 === 0) spawns.push({ type: "boss", count: 1 + Math.floor(n / 6), gap: 1.5, delay: 1 });
   return { spawns };
 }
+/* Рост здоровья монстров. На уровнях кривая мягче (0.15): с 0.18 ребёнок на 8-10
+   уровнях проходил на одну звезду, а 10-й иногда проигрывал на 5-й волне (прогон ботами).
+   Бесконечный режим оставлен прежним — это испытание по желанию. */
 function scaleFor(gl) {
-  return { hp: 1 + 0.18 * (gl - 1), spd: Math.min(1.65, 1 + 0.02 * (gl - 1)) };
+  const slope = G.mode === "level" ? 0.15 : 0.18;
+  return { hp: 1 + slope * (gl - 1), spd: Math.min(1.65, 1 + 0.02 * (gl - 1)) };
 }
 
 function startLevel(n) {
@@ -468,7 +477,8 @@ function startEndless() {
    вообще ничего: 150 золота против 165 за рельсу — поле остаётся пустым,
    убивать некому, золота не появится. Гарантируем две башни любого отряда. */
 function startingGold() {
-  const base = 150 + Save.data.startGold;
+  // с 6-го уровня +10 золота за уровень: поздние карты длиннее и первые волны там плотнее
+  const base = 150 + Save.data.startGold + (G.mode === "level" && G.level > 5 ? (G.level - 5) * 10 : 0);
   const costs = Save.data.squad.map(id => TOWERS[id].levels[0].cost);
   const need = costs.length ? Math.min.apply(null, costs) * 2 : 0;
   return Math.max(base, need);
@@ -670,6 +680,12 @@ function updateTowers(dt) {
     const st = def.levels[tw.level];
     if (tw.cooldown > 0) tw.cooldown -= dt;
     const tx = cx(tw.c + 0.5), ty = cy(tw.r + 0.5);
+    // авто-починка мифических и легендарных — до проверки целей, чинится и без врагов рядом
+    const regen = RARITY[def.rarity].regen;
+    if (regen && tw.hp < tw.maxHp) {
+      tw.hp = Math.min(tw.maxHp, tw.hp + regen * dt);
+      if (Math.random() < dt * 1.6) G.particles.push(makeParticle(tx + rnd(-0.2, 0.2) * cell, ty - cell * 0.25, PAL.good, 0.5, 0.8, "star"));
+    }
     const rangePx = st.range * cell;
     const inRange = [];
     for (const e of G.enemies) {
@@ -1483,6 +1499,15 @@ function chip(x, y, w, h, accent) {
   rr(ctx, x, y, w, h, h * 0.42);
   ctx.fillStyle = "rgba(8,16,30,0.42)"; ctx.fill();
   ctx.strokeStyle = accent || "rgba(255,255,255,0.09)"; ctx.lineWidth = Math.max(1, view.ui); ctx.stroke();
+}
+/* Значок авто-починки: зелёный кружок с белым плюсом. */
+function drawRepairBadge(x, y, r) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
+  ctx.fillStyle = PAL.good; ctx.fill();
+  ctx.strokeStyle = "#0e1626"; ctx.lineWidth = Math.max(1, r * 0.22); ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(x - r * 0.18, y - r * 0.58, r * 0.36, r * 1.16);
+  ctx.fillRect(x - r * 0.58, y - r * 0.18, r * 1.16, r * 0.36);
 }
 
 /* ---------- Поле / лабиринт ---------- */
@@ -3439,6 +3464,7 @@ function drawDock() {
     rr(ctx, x, y, bw, bh, rad); ctx.stroke();
     ctx.globalAlpha = afford ? 1 : 0.45;
     drawTowerIcon(ctx, x + bw * 0.22, y + bh * 0.42, Math.min(bw, bh) * 0.42, type);
+    if (RARITY[def.rarity].regen) drawRepairBadge(x + bw * 0.22 + Math.min(bw, bh) * 0.24, y + bh * 0.2, 6 * view.ui);
     const tx = x + bw * 0.44, maxTW = bw * 0.56 - 8 * view.ui;
     // в узкой ячейке описание не помещается — оставляем только название и цену
     const showDesc = textW(cDesc(type), F(10)) <= maxTW;
@@ -3480,6 +3506,7 @@ function drawTowerPanel(dy, dh) {
   rr(ctx, sx, hpy, hpw, hph, hph / 2); ctx.fillStyle = "rgba(8,16,30,0.5)"; ctx.fill();
   if (hk > 0) { rr(ctx, sx, hpy, hpw * hk, hph, hph / 2); ctx.fillStyle = hk > 0.5 ? PAL.good : hk > 0.25 ? PAL.gold : PAL.danger; ctx.fill(); }
   text(L("durab") + " " + Math.ceil(tw.hp) + "/" + tw.maxHp, sx + hpw + 8 * view.ui, hpy + hph / 2, F(10), PAL.dim, "left", "middle");
+  if (RARITY[def.rarity].regen) drawRepairBadge(sx, hpy + hph / 2, 7 * view.ui);
   // ряд кнопок (3 или 4)
   const btns = [];
   if (tw.level < 2) { const uc = def.levels[tw.level + 1].cost; btns.push({ id: "upg", label: L("upgrade") + " " + uc, color: G.gold >= uc ? PAL.good : "#3a4763", tc: "#0e1626", dis: G.gold < uc }); }
@@ -3967,7 +3994,7 @@ function drawCannonInfo(id) {
   const def = TOWERS[id], rar = RARITY[def.rarity];
   const owned = ownsCannon(id), insq = inSquad(id);
   dim(0.72);
-  const w = Math.min(360 * view.ui, view.w * 0.92), h = 380 * view.ui;
+  const w = Math.min(360 * view.ui, view.w * 0.92), h = (rar.regen ? 440 : 380) * view.ui;
   const p = panelBox(w, h);
   // шапка редкости
   rr(ctx, p.x, p.y, w, 34 * view.ui, 20 * view.ui); ctx.fillStyle = rar.color; ctx.fill();
@@ -3990,6 +4017,16 @@ function drawCannonInfo(id) {
     text(String(st[i].dmg), tx + 44 * view.ui, yy, F(12), PAL.good, "left");
     text(st[i].range.toFixed(1), tx + 108 * view.ui, yy, F(12), PAL.good, "left");
     text(st[i].rate.toFixed(1), tx + 178 * view.ui, yy, F(12), PAL.good, "left");
+  }
+  // авто-починка — плашкой под таблицей
+  if (rar.regen) {
+    const lbl = L("autoRepair") + ": +" + rar.regen + L("perSec");
+    const cw = Math.min(w - 32 * view.ui, textW(lbl, F(13)) + 46 * view.ui), chh = 26 * view.ui;
+    const chx = view.w / 2 - cw / 2, chy = p.y + 254 * view.ui;
+    chip(chx, chy, cw, chh, "rgba(6,214,160,0.55)");
+    drawRepairBadge(chx + 15 * view.ui, chy + chh / 2, 8 * view.ui);
+    text(lbl, chx + 29 * view.ui, chy + chh / 2, F(13), PAL.good, "left", "middle");
+    text(L("autoRepairHint"), view.w / 2, chy + chh + 13 * view.ui, F(11), PAL.dim);
   }
   // кнопки
   const bw = w - 48 * view.ui, bxo = view.w / 2 - bw / 2;
@@ -4024,6 +4061,7 @@ function drawCannonCell(x, y, w, h, id) {
     ctx.strokeStyle = PAL.dim; ctx.lineWidth = 2 * view.ui;
     ctx.beginPath(); ctx.arc(lx, ly, 3.5 * view.ui, Math.PI, TAU); ctx.stroke();
   }
+  if (RARITY[def.rarity].regen) drawRepairBadge(x + 13 * view.ui, y + 13 * view.ui, 7 * view.ui);
   G.hot.push({ id: "can_" + id, x, y, w, h, disabled: false });
 }
 
