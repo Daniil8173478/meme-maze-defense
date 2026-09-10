@@ -2012,20 +2012,15 @@ function drawNommy(g, x, y, r, ph) {
   g.beginPath(); g.moveTo(x - r * 0.62, ey - r * 0.28); g.lineTo(x - r * 0.36, ey - r * 0.4);
   g.moveTo(x + r * 0.62, ey - r * 0.28); g.lineTo(x + r * 0.36, ey - r * 0.4); g.stroke();
   const CN = "#5fc247";
-  // пятнышки на шкуре и светлое пузико
+  // светлое пузико
   g.fillStyle = "rgba(255,255,255,0.12)";
   g.beginPath(); g.ellipse(x, y + r * 0.62, r * 0.36, r * 0.26, 0, 0, TAU); g.fill();
-  speckles(g, x - r * 0.42, y + r * 0.3, r * 0.22, r * 0.3, 5, 9, shade(CN, 0.78), r * 0.05);
-  speckles(g, x + r * 0.44, y + r * 0.34, r * 0.2, r * 0.28, 4, 4, shade(CN, 0.78), r * 0.05);
   // маленькие ушки-рожки
   g.fillStyle = shade(CN, 0.88); g.strokeStyle = shade(CN, 0.5); g.lineWidth = Math.max(1.3, r * 0.045);
   for (const s3 of [-1, 1]) {
     g.beginPath(); g.moveTo(x + s3 * r * 0.5, y - r * 0.66); g.quadraticCurveTo(x + s3 * r * 0.72, y - r * 0.98, x + s3 * r * 0.3, y - r * 0.86); g.closePath(); g.fill(); g.stroke();
   }
-  // румянец и блик
-  g.fillStyle = "rgba(255,150,150,0.3)";
-  g.beginPath(); g.ellipse(x - r * 0.6, y + r * 0.08, r * 0.13, r * 0.09, 0, 0, TAU); g.fill();
-  g.beginPath(); g.ellipse(x + r * 0.6, y + r * 0.08, r * 0.13, r * 0.09, 0, 0, TAU); g.fill();
+  // блик на макушке
   gloss(g, x - r * 0.34, y - r * 0.72, r * 0.16, r * 0.09, 0.26, -0.5);
 }
 function drawSigma(g, x, y, r, ph) {
