@@ -59,7 +59,7 @@ function skin() { return SKINS[Save.data.skin] || SKINS.classic; }
 let LANG = "ru";
 const TXT = {
   ru: {
-    title: "Башни против Мемов", subtitle: "Защита лабиринта", play: "Играть", book: "Книга мемов", squad: "Отряд", shop: "Магазин",
+    title: "Башни против Мемов", play: "Играть", book: "Книга мемов", squad: "Отряд", shop: "Магазин",
     settings: "Настройки", record: "РЕКОРД", coins: "МОНЕТЫ", sound: "Звук", music: "Музыка", lang: "Язык",
     on: "вкл", off: "выкл", back: "Назад", levelSelect: "Выбор уровня", endless: "Бесконечный режим",
     wave: "Волна", level: "Уровень", score: "Счёт", combo: "Комбо", toBattle: "В бой!", startEarlier: "Начать раньше",
@@ -89,8 +89,8 @@ const TXT = {
     needAmt: "нужно "
   },
   en: {
-    title: "Towers vs Memes", subtitle: "Maze tower defense", play: "Play", book: "Meme Book", squad: "Squad", shop: "Shop",
-    settings: "Settings", record: "BEST", coins: "COINS", sound: "Sound", music: "Music", lang: "Language",
+    title: "Башни против Мемов", play: "Играть", book: "Книга мемов", squad: "Отряд", shop: "Магазин",
+    settings: "Settings", record: "РЕКОРД", coins: "МОНЕТЫ", sound: "Sound", music: "Music", lang: "Language",
     on: "on", off: "off", back: "Back", levelSelect: "Select Level", endless: "Endless Mode",
     wave: "Wave", level: "Level", score: "Score", combo: "Combo", toBattle: "Fight!", startEarlier: "Start early",
     placeHint: "Place towers, then Fight", bonus: "bonus", through: "in", howToPlay: "How to play",
@@ -2646,7 +2646,7 @@ function drawMenu() {
   // декоративные монстрики
   const t = G.clock !== undefined ? performance.now() / 1000 : 0;
   drawMenuDecor(t);
-  // заголовок = название игры (локализованное, авто-подгонка по ширине)
+  // заголовок = название игры (единое для всех языков, авто-подгонка по ширине)
   const cxp = view.w / 2, ty = view.h * 0.2;
   const maxW = view.w * 0.9;
   ctx.font = "bold " + F(40) + "px \"Trebuchet MS\", sans-serif";
@@ -2656,7 +2656,6 @@ function drawMenu() {
   ctx.shadowColor = "rgba(0,0,0,0.4)"; ctx.shadowBlur = 12 * view.ui; ctx.shadowOffsetY = 4 * view.ui;
   text(L("title"), cxp, ty, ts, PAL.gold);
   ctx.restore();
-  text(L("subtitle"), cxp, ty + 38 * view.ui, F(20), PAL.good);
 
   const bw = Math.min(300 * view.ui, view.w * 0.82), bx = cxp - bw / 2;
   let y = view.h * 0.38, bh = 52 * view.ui, gap = 12 * view.ui;
