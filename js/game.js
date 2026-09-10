@@ -89,8 +89,8 @@ const TXT = {
     needAmt: "нужно "
   },
   en: {
-    title: "Башни против Мемов", play: "Играть", book: "Книга мемов", squad: "Отряд", shop: "Магазин",
-    settings: "Settings", record: "РЕКОРД", coins: "МОНЕТЫ", sound: "Sound", music: "Music", lang: "Language",
+    title: "Башни против Мемов", play: "Play", book: "Meme Book", squad: "Squad", shop: "Shop",
+    settings: "Settings", record: "BEST", coins: "COINS", sound: "Sound", music: "Music", lang: "Language",
     on: "on", off: "off", back: "Back", levelSelect: "Select Level", endless: "Endless Mode",
     wave: "Wave", level: "Level", score: "Score", combo: "Combo", toBattle: "Fight!", startEarlier: "Start early",
     placeHint: "Place towers, then Fight", bonus: "bonus", through: "in", howToPlay: "How to play",
