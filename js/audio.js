@@ -186,7 +186,9 @@ const Sound = (function () {
     reward: () => {
       [660, 880, 660, 1046].forEach((f, i) => tone({ freq: f, type: "triangle", dur: 0.16, vol: 0.14, delay: i * 0.09 }));
       tone({ freq: 1320, type: "sine", dur: 0.4, vol: 0.06, delay: 0.28 });
-    }
+    },
+    // рулетка ящика: мягкий тик маримбы на каждую проезжающую карточку
+    spin: () => tone({ freq: vary(1250, 0.02), type: "sine", dur: 0.035, vol: 0.07 })
   };
 
   /* Подгонка громкости по замеру: новые эффекты многослойные, поэтому каждый
@@ -199,7 +201,7 @@ const Sound = (function () {
 
   /* Минимальные паузы между повторами: на ускорении x5 десяток башен стреляет
      одновременно, и без этого выстрелы сливаются в кашу. */
-  const GAP = { shoot: 0.05, hit: 0.05, frost: 0.055, snipe: 0.06, pop: 0.045, combo: 0.09, coin: 0.04 };
+  const GAP = { shoot: 0.05, hit: 0.05, frost: 0.055, snipe: 0.06, pop: 0.045, combo: 0.09, coin: 0.04, spin: 0.028 };
   function play(name, arg) {
     const f = FX[name];
     if (!f) return;

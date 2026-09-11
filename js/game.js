@@ -89,7 +89,8 @@ const TXT = {
     speedSlow: "медленно", speedMed: "средне", speedFast: "быстро", speedVFast: "очень быстро", langName: "Русский",
     notEnough: "Недостаточно монет", watchAd: "Смотреть рекламу", upgraded: "Улучшено!", repaired: "Починено!",
     needAmt: "нужно ",
-    autoRepair: "Авто-починка", perSec: "/сек", autoRepairHint: "Сама восстанавливает прочность"
+    autoRepair: "Авто-починка", perSec: "/сек", autoRepairHint: "Сама восстанавливает прочность",
+    spinning: "Открываем ящик…", tapSkip: "Нажми, чтобы пропустить"
   },
   en: {
     title: "Башни против Мемов", play: "Play", book: "Meme Book", squad: "Squad", shop: "Shop",
@@ -120,7 +121,8 @@ const TXT = {
     speedSlow: "slow", speedMed: "medium", speedFast: "fast", speedVFast: "very fast", langName: "English",
     notEnough: "Not enough coins", watchAd: "Watch ad", upgraded: "Upgraded!", repaired: "Repaired!",
     needAmt: "need ",
-    autoRepair: "Auto-repair", perSec: "/s", autoRepairHint: "Restores its durability by itself"
+    autoRepair: "Auto-repair", perSec: "/s", autoRepairHint: "Restores its durability by itself",
+    spinning: "Opening crate…", tapSkip: "Tap to skip"
   }
 };
 function L(k) { const t = TXT[LANG] && TXT[LANG][k]; return t != null ? t : (TXT.ru[k] != null ? TXT.ru[k] : k); }
@@ -326,7 +328,7 @@ const G = {
   pendingCoins: 0, resultStars: 0,
   hot: [], tutorialShown: false, tutorT: 0,
   shopTab: "crates", colTab: "rare",
-  crateResult: null, crateAnim: 0, prevState: "menu"
+  crateResult: null, crateAnim: 0, prevState: "menu", crateReel: null, crateTick: -1, crateRevealed: true
 };
 let ysdk = null;
 let audioReady = false;
@@ -545,7 +547,7 @@ function loop(now) {
     let t = dt * G.speed;
     while (t > 0 && G.state === "playing") { const s = Math.min(t, 0.034); update(s); t -= s; }
   }
-  if (G.state === "crate") G.crateAnim += dt;
+  if (G.state === "crate") updateCrate(dt);
   if (G.toast) { G.toast.life -= dt; if (G.toast.life <= 0) G.toast = null; }
   render();
   requestAnimationFrame(loop);
@@ -1132,6 +1134,7 @@ function handleTap(id, b) {
     case "shop": handleShop(id); break;
     case "squad": handleSquad(id); break;
     case "crate":
+      if (id === "crate_skip") { if (G.crateAnim < CRATE_SPIN + CRATE_PAUSE) G.crateAnim = CRATE_SPIN + CRATE_PAUSE; break; }
       if (id === "crate_ok") { G.state = G.prevState || "shop"; }
       else if (id === "crate_add") {
         const cr = G.crateResult;
@@ -1245,10 +1248,11 @@ function handleShop(id) {
 
 /* ---------- Ящики (гача) ---------- */
 const CRATE_COST = { basic: 100, gold: 350 };
+/* Шансы ящиков. За рекламу: лег. 20%, миф. 30%, ред. 50%. */
 const CRATE_ODDS = {
   basic: { legend: 0.03, mythic: 0.20 },
   gold:  { legend: 0.10, mythic: 0.35 },
-  ad:    { legend: 0.06, mythic: 0.30 }
+  ad:    { legend: 0.20, mythic: 0.30 }
 };
 function rollRarity(kind) {
   const o = CRATE_ODDS[kind] || CRATE_ODDS.basic;
@@ -1269,9 +1273,39 @@ function grantCrate(kind) {
   Save.write();
   G.crateResult = { id, isNew, coins };
   G.crateAnim = 0;
+  G.crateReel = buildCrateReel(kind, id);
+  G.crateTick = -1; G.crateRevealed = false;
   if (G.state !== "crate") G.prevState = G.state;
   G.state = "crate";
-  Sound.play(isNew ? "reward" : "coin");
+}
+/* Рулетка ящика. Выигрыш уже выбран и сохранён — лента лишь красиво к нему
+   подкручивает, поэтому закрытие игры во время прокрутки награду не отнимет.
+   Остальные карточки на ленте выпадают по тем же шансам, что и сам ящик. */
+const CRATE_SPIN = 3.2, CRATE_PAUSE = 0.45, REEL_STOP = 28;
+function buildCrateReel(kind, winId) {
+  const items = [];
+  for (let i = 0; i < REEL_STOP + 6; i++) {
+    const pool = cannonsOfRarity(rollRarity(kind));
+    items.push(pool[(Math.random() * pool.length) | 0]);
+  }
+  items[REEL_STOP] = winId;
+  // указатель останавливается не строго по центру карточки — живее, но всегда на выигрыше
+  return { items, land: (Math.random() - 0.5) * 0.5 };
+}
+/* Положение ленты в карточках: быстрый старт и долгое плавное торможение. */
+function crateReelPos() {
+  const t = Math.min(1, G.crateAnim / CRATE_SPIN);
+  return (1 - Math.pow(1 - t, 4)) * (REEL_STOP + G.crateReel.land);
+}
+function updateCrate(dt) {
+  G.crateAnim += dt;
+  if (!G.crateReel) return;
+  const idx = Math.floor(crateReelPos() + 0.5);
+  if (G.crateAnim < CRATE_SPIN && idx !== G.crateTick) { G.crateTick = idx; Sound.play("spin"); }
+  if (!G.crateRevealed && G.crateAnim >= CRATE_SPIN + CRATE_PAUSE) {
+    G.crateRevealed = true;
+    Sound.play(G.crateResult.isNew ? "reward" : "coin");
+  }
 }
 function buyCrateCoins(kind, cost) {
   if (Save.data.coins < cost) { showToast(L("notEnough"), 50); return; }
@@ -3872,6 +3906,12 @@ function oddsStr(rp, mp, lp) {
   const n = LANG === "en" ? ["Rare", "Myth", "Leg"] : ["Ред.", "Миф.", "Лег."];
   return n[0] + " " + rp + "%  ·  " + n[1] + " " + mp + "%  ·  " + n[2] + " " + lp + "%";
 }
+/* Строка шансов из той же таблицы, по которой выдаётся пушка, — цифры не разъедутся. */
+function crateOddsStr(kind) {
+  const o = CRATE_ODDS[kind];
+  const lp = Math.round(o.legend * 100), mp = Math.round(o.mythic * 100);
+  return oddsStr(100 - lp - mp, mp, lp);
+}
 function drawShop() {
   text(L("shop"), view.w / 2, view.h * 0.075, F(26), PAL.gold);
   drawCoinBalance(view.h * 0.135);
@@ -3886,9 +3926,9 @@ function drawShop() {
 }
 function drawShopCrates(top, areaW, bx) {
   const cards = [
-    { id: "crate_basic", name: L("crateBasic"), accent: RARITY.rare.color, odds: oddsStr(77, 20, 3), price: CRATE_COST.basic, enabled: Save.data.coins >= CRATE_COST.basic },
-    { id: "crate_gold", name: L("crateGold"), accent: RARITY.legend.color, odds: oddsStr(55, 35, 10), price: CRATE_COST.gold, enabled: Save.data.coins >= CRATE_COST.gold },
-    { id: "crate_ad", name: L("crateAd"), accent: PAL.blue, odds: oddsStr(64, 30, 6), label: L("adWord"), enabled: true, ad: true }
+    { id: "crate_basic", name: L("crateBasic"), accent: RARITY.rare.color, odds: crateOddsStr("basic"), price: CRATE_COST.basic, enabled: Save.data.coins >= CRATE_COST.basic },
+    { id: "crate_gold", name: L("crateGold"), accent: RARITY.legend.color, odds: crateOddsStr("gold"), price: CRATE_COST.gold, enabled: Save.data.coins >= CRATE_COST.gold },
+    { id: "crate_ad", name: L("crateAd"), accent: PAL.blue, odds: crateOddsStr("ad"), label: L("adWord"), enabled: true, ad: true }
   ];
   const ch = Math.min(88 * view.ui, (view.h * 0.6) / 3 - 10 * view.ui);
   for (let i = 0; i < cards.length; i++) {
@@ -4072,18 +4112,69 @@ function drawCannonCell(x, y, w, h, id) {
 }
 
 /* ---------- Открытие ящика (награда) ---------- */
+/* Карточка на ленте рулетки: рамка и полоса цвета редкости, иконка и название пушки. */
+function drawReelCard(x, y, w, h, id, glow) {
+  const def = TOWERS[id], rc = RARITY[def.rarity].color, rad = 12 * view.ui;
+  ctx.save();
+  if (glow > 0) { ctx.shadowColor = rc; ctx.shadowBlur = 28 * view.ui * glow; }
+  const gr = ctx.createLinearGradient(0, y, 0, y + h);
+  gr.addColorStop(0, shade(rc, 0.42)); gr.addColorStop(1, shade(rc, 0.2));
+  rr(ctx, x, y, w, h, rad); ctx.fillStyle = gr; ctx.fill();
+  ctx.restore();
+  ctx.save(); rr(ctx, x, y, w, h, rad); ctx.clip();
+  ctx.fillStyle = rc; ctx.fillRect(x, y, w, Math.max(3, 6 * view.ui));
+  ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fillRect(x, y, w, h * 0.45);
+  ctx.restore();
+  ctx.strokeStyle = rc; ctx.lineWidth = Math.max(2, 3.5 * view.ui);
+  rr(ctx, x, y, w, h, rad); ctx.stroke();
+  drawTowerIcon(ctx, x + w / 2, y + h * 0.43, w * 0.64, id);
+  textClip(cName(id), x + w / 2, y + h * 0.84, w - 10 * view.ui, F(11), PAL.text, "center");
+}
+/* Прокрутка: лента карточек под золотым указателем, края уходят в тень.
+   После остановки выигрышная карточка пульсирует, затем открывается награда. */
+function drawCrateReel() {
+  const cxp = view.w / 2, cyp = view.h * 0.46;
+  const cw = Math.min(120 * view.ui, view.w * 0.27), ch = cw * 1.28, gap = 10 * view.ui, step = cw + gap;
+  const pos = crateReelPos(), items = G.crateReel.items;
+  const settled = G.crateAnim >= CRATE_SPIN;
+  const pulse = settled ? 0.6 + 0.4 * Math.sin((G.crateAnim - CRATE_SPIN) * 18) : 0;
+  text(L("spinning"), cxp, view.h * 0.2, F(24), PAL.gold);
+  const bandH = ch + 28 * view.ui, top = cyp - bandH / 2, bot = cyp + bandH / 2;
+  ctx.fillStyle = "rgba(6,12,24,0.55)"; ctx.fillRect(0, top, view.w, bandH);
+  const first = Math.max(0, Math.floor(pos - cxp / step) - 1);
+  const last = Math.min(items.length - 1, Math.ceil(pos + cxp / step) + 1);
+  for (let i = first; i <= last; i++) {
+    const x = cxp + (i - pos) * step - cw / 2;
+    drawReelCard(x, cyp - ch / 2, cw, ch, items[i], settled && i === REEL_STOP ? pulse : 0);
+  }
+  const fade = Math.min(view.w * 0.22, 160 * view.ui);
+  for (const side of [0, 1]) {
+    const g = ctx.createLinearGradient(side ? view.w : 0, 0, side ? view.w - fade : fade, 0);
+    g.addColorStop(0, "rgba(11,19,34,1)"); g.addColorStop(1, "rgba(11,19,34,0)");
+    ctx.fillStyle = g; ctx.fillRect(side ? view.w - fade : 0, top, fade, bandH);
+  }
+  const tri = 12 * view.ui;
+  ctx.fillStyle = PAL.gold;
+  ctx.beginPath(); ctx.moveTo(cxp - tri, top - 2); ctx.lineTo(cxp + tri, top - 2); ctx.lineTo(cxp, top + tri * 1.2); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cxp - tri, bot + 2); ctx.lineTo(cxp + tri, bot + 2); ctx.lineTo(cxp, bot - tri * 1.2); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "rgba(255,209,102,0.5)"; ctx.fillRect(cxp - 1.5 * view.ui, top + tri, 3 * view.ui, bandH - tri * 2);
+  text(L("tapSkip"), cxp, view.h * 0.8, F(13), PAL.dim);
+  G.hot.push({ id: "crate_skip", x: 0, y: 0, w: view.w, h: view.h, disabled: false });
+}
 function drawCrate() {
   ctx.fillStyle = "#0b1322"; ctx.fillRect(0, 0, view.w, view.h);
   const cr = G.crateResult;
   if (!cr) { G.state = G.prevState || "shop"; return; }
+  if (G.crateReel && G.crateAnim < CRATE_SPIN + CRATE_PAUSE) { drawCrateReel(); return; }
   const def = TOWERS[cr.id], rc = RARITY[def.rarity].color;
-  const t = Math.min(1, G.crateAnim / 0.5);
+  const ra = G.crateReel ? G.crateAnim - CRATE_SPIN - CRATE_PAUSE : G.crateAnim;
+  const t = Math.min(1, ra / 0.5);
   const cxp = view.w / 2, cyp = view.h * 0.4;
   // лучи
   ctx.save(); ctx.globalAlpha = 0.45 * t;
   for (let i = 0; i < 12; i++) {
     ctx.strokeStyle = rc; ctx.lineWidth = 3 * view.ui;
-    const a = i * TAU / 12 + G.crateAnim * 0.6;
+    const a = i * TAU / 12 + ra * 0.6;
     ctx.beginPath(); ctx.moveTo(cxp, cyp); ctx.lineTo(cxp + Math.cos(a) * view.h * 0.5, cyp + Math.sin(a) * view.h * 0.5); ctx.stroke();
   }
   ctx.restore();
