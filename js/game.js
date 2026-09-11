@@ -90,7 +90,8 @@ const TXT = {
     notEnough: "Недостаточно монет", watchAd: "Смотреть рекламу", upgraded: "Улучшено!", repaired: "Починено!",
     needAmt: "нужно ",
     autoRepair: "Авто-починка", perSec: "/сек", autoRepairHint: "Сама восстанавливает прочность",
-    spinning: "Открываем ящик…", tapSkip: "Нажми, чтобы пропустить"
+    spinning: "Открываем ящик…", tapSkip: "Нажми, чтобы пропустить",
+    rotate1: "Пожалуйста, переверните", rotate2: "устройство для игры"
   },
   en: {
     title: "Башни против Мемов", play: "Play", book: "Meme Book", squad: "Squad", shop: "Shop",
@@ -122,7 +123,8 @@ const TXT = {
     notEnough: "Not enough coins", watchAd: "Watch ad", upgraded: "Upgraded!", repaired: "Repaired!",
     needAmt: "need ",
     autoRepair: "Auto-repair", perSec: "/s", autoRepairHint: "Restores its durability by itself",
-    spinning: "Opening crate…", tapSkip: "Tap to skip"
+    spinning: "Opening crate…", tapSkip: "Tap to skip",
+    rotate1: "Please rotate", rotate2: "your device to play"
   }
 };
 function L(k) { const t = TXT[LANG] && TXT[LANG][k]; return t != null ? t : (TXT.ru[k] != null ? TXT.ru[k] : k); }
@@ -205,6 +207,15 @@ function drawCreature(type, x, y, r, ph) {
 /* ---------- Вид/раскладка ---------- */
 const view = { w: 0, h: 0, dpr: 1, ui: 1, hudH: 0, dockH: 0, board: { x: 0, y: 0, cell: 40, w: 0, h: 0 } };
 function F(s) { return Math.max(8, Math.round(s * view.ui)); }
+/* Телефон или планшет — по данным SDK, а без него — по грубому указателю (палец).
+   Ноутбук с сенсорным экраном считается компьютером: основной указатель у него — мышь. */
+function isTouchDevice() {
+  try {
+    const t = ysdk && ysdk.deviceInfo && ysdk.deviceInfo.type;
+    if (t) return t === "mobile" || t === "tablet";
+  } catch (e) {}
+  return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+}
 function layout() {
   const w = window.innerWidth, h = window.innerHeight;
   view.w = w; view.h = h;
@@ -216,6 +227,8 @@ function layout() {
   canvas.style.height = h + "px";
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   view.ui = clamp(Math.min(w, h) / 720, 0.72, 1.5);
+  // игра только горизонтальная: вертикально повёрнутый телефон/планшет видит заглушку «переверните»
+  view.rotate = isTouchDevice() && h > w;
   // телефон лёжа: низкий горизонтальный экран. Пушки уходят в колонку справа,
   // верхняя строка тоньше — поле получает почти всю высоту экрана.
   view.side = w > h && h <= 500;
@@ -385,8 +398,8 @@ let audioReady = false;
    ровно однажды, и награда тоже выдаётся один раз. */
 const HELP_COOLDOWN_MS = 3 * 60 * 1000;
 const Ads = {
-  FULLSCREEN_GAP_MS: 5 * 60 * 1000,
-  lastFullscreen: 0,          // отсчёт от загрузки: первая межстраничная не раньше чем через 5 минут
+  FULLSCREEN_GAP_MS: 3 * 60 * 1000, // лимит платформы: межстраничная не чаще раза в 3 минуты
+  lastFullscreen: 0,          // отсчёт от загрузки: первая межстраничная не раньше чем через 3 минуты
   helpReadyAt: 0,             // когда снова доступна «экстренная помощь»
   pause() {
     G.adPlaying = true;
@@ -664,12 +677,12 @@ function loop(now) {
   let dt = (now - lastT) / 1000;
   lastT = now;
   if (dt > 0.05) dt = 0.05;
-  if (G.state === "playing" && !G.adPlaying) {
+  if (G.state === "playing" && !G.adPlaying && !view.rotate) {
     // подшаги для стабильности на ускорении (x2/x5)
     let t = dt * G.speed;
     while (t > 0 && G.state === "playing") { const s = Math.min(t, 0.034); update(s); t -= s; }
   }
-  if (G.state === "crate" && !G.adPlaying) updateCrate(dt);
+  if (G.state === "crate" && !G.adPlaying && !view.rotate) updateCrate(dt);
   if (G.toast) { G.toast.life -= dt; if (G.toast.life <= 0) G.toast = null; }
   render();
   requestAnimationFrame(loop);
@@ -1133,6 +1146,7 @@ function onUp(e) {
   if (moved < 16 && dur < 700) onTap(p.x, p.y);
 }
 function onKey(e) {
+  if (view.rotate) return;
   if (e.key === "Escape") {
     if (G.state === "playing") { G.state = "paused"; Sound.play("click"); }
     else if (G.state === "paused") { G.state = "playing"; lastT = performance.now(); Sound.play("click"); }
@@ -1146,6 +1160,7 @@ function onKey(e) {
 
 function onTap(x, y) {
   firstGesture();
+  if (view.rotate) return; // под заглушкой поле не видно — тап не должен ставить башню вслепую
   const hadToast = !!G.toast;
   // сначала UI-кнопки (сверху вниз по списку — последние нарисованы поверх)
   for (let i = G.hot.length - 1; i >= 0; i--) {
@@ -1487,11 +1502,12 @@ function handleSquad(id) {
 /* =====================================================================
    РЕНДЕР
    ===================================================================== */
-function render() { renderMain(); if (G.toast) drawToast(); }
+function render() { renderMain(); if (G.toast && !view.rotate) drawToast(); }
 function renderMain() {
   G.hot = [];
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.clearRect(0, 0, view.w, view.h);
+  if (view.rotate) { drawRotateStub(); return; }
   // экран ящика сам заливает весь фон — небо и холмы под ним рисовать незачем
   if (G.state === "crate") { drawCrate(); return; }
   // фон
@@ -1531,6 +1547,59 @@ function renderMain() {
   if (G.adPlaying) drawAdCurtain();
 }
 
+/* Заглушка для вертикально повёрнутого телефона: игра рассчитана только на горизонтальный
+   экран. Нарисованный телефон плавно ложится набок, круговая стрелка подсказывает
+   направление, ниже — просьба. Бой и рулетка под заглушкой стоят (см. loop). */
+function drawRotateStub() {
+  const w = view.w, h = view.h, u = view.ui, now = performance.now();
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, "#27507f"); bg.addColorStop(0.5, "#1f4560"); bg.addColorStop(1, "#1a3d44");
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+  drawBackdrop(now / 1000);
+  const s = Math.min(w * 0.36, h * 0.22), cxp = w / 2, cyp = h * 0.4;
+  // цикл 2.6 с: стоит → плавно ложится набок → лежит → растворяется
+  const t = (now / 2600) % 1, k = clamp((t - 0.2) / 0.35, 0, 1);
+  const turn = k * k * (3 - 2 * k) * Math.PI / 2;
+  const alpha = t < 0.06 ? t / 0.06 : t > 0.88 ? (1 - t) / 0.12 : 1;
+  // круговая стрелка по часовой над телефоном
+  const R = s * 0.78, a0 = -Math.PI * 0.8, a1 = -Math.PI * 0.2, hs = 11 * u;
+  ctx.save();
+  ctx.strokeStyle = PAL.gold; ctx.fillStyle = PAL.gold;
+  ctx.lineWidth = Math.max(2, 4 * u); ctx.lineCap = "round";
+  ctx.beginPath(); ctx.arc(cxp, cyp, R, a0, a1); ctx.stroke();
+  const ax = cxp + Math.cos(a1) * R, ay = cyp + Math.sin(a1) * R;
+  const tx = -Math.sin(a1), ty = Math.cos(a1), nx = Math.cos(a1), ny = Math.sin(a1);
+  ctx.beginPath();
+  ctx.moveTo(ax + tx * hs, ay + ty * hs);
+  ctx.lineTo(ax - nx * hs * 0.7, ay - ny * hs * 0.7);
+  ctx.lineTo(ax + nx * hs * 0.7, ay + ny * hs * 0.7);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // телефон
+  const pw = s * 0.52, ph = s, rad = pw * 0.18, m = pw * 0.09;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(cxp, cyp); ctx.rotate(turn);
+  ctx.shadowColor = "rgba(0,0,0,0.45)"; ctx.shadowBlur = 16 * u; ctx.shadowOffsetY = 4 * u;
+  rr(ctx, -pw / 2, -ph / 2, pw, ph, rad); ctx.fillStyle = "#0e1626"; ctx.fill();
+  ctx.shadowColor = "transparent";
+  ctx.lineWidth = Math.max(2, 3 * u); ctx.strokeStyle = "#c9d6ea"; ctx.stroke();
+  const scr = ctx.createLinearGradient(0, -ph / 2, 0, ph / 2);
+  scr.addColorStop(0, "#4fbf6a"); scr.addColorStop(1, "#2f8f4c");
+  rr(ctx, -pw / 2 + m, -ph / 2 + m * 1.8, pw - m * 2, ph - m * 3.6, rad * 0.45); ctx.fillStyle = scr; ctx.fill();
+  ctx.fillStyle = "#c9d6ea";
+  rr(ctx, -pw * 0.12, -ph / 2 + m * 0.7, pw * 0.24, m * 0.45, m * 0.2); ctx.fill();
+  // значок «играть» всегда смотрит вправо, как бы ни был повёрнут телефон
+  ctx.rotate(-turn);
+  const pr = pw * 0.17;
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.beginPath(); ctx.moveTo(-pr * 0.6, -pr); ctx.lineTo(pr, 0); ctx.lineTo(-pr * 0.6, pr); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // просьба в две строки — на узком экране одна строка не влезает
+  const fs = F(22), maxW = w - 32 * u, ty1 = cyp + s * 0.62 + 22 * u + fs / 2;
+  textClip(L("rotate1"), w / 2, ty1, maxW, fs, PAL.text, "center");
+  textClip(L("rotate2"), w / 2, ty1 + fs * 1.35, maxW, fs, PAL.text, "center");
+}
 /* Окружение вокруг поля: тёплое свечение, дальние холмы, облака и мошкара.
    Всё крупное и медленное — фон оживает, но не спорит с игрой. */
 function drawBackdrop(t) {
