@@ -6,6 +6,7 @@ const Sound = (function () {
   let musicTimer = null, musicOn = false, mStep = 0, mNext = 0;
   let trim = 1;
   const lastAt = {};
+  let muted = false;
 
   /* Общая громкость: 0.55 × 1.3 × 1.3 ≈ 0.93 — два подъёма по 30% от исходной.
      После master стоит мягкий ограничитель: до 0.8 он прозрачен, выше плавно
@@ -33,7 +34,7 @@ const Sound = (function () {
       clipper.oversample = "2x";
       clipper.connect(ctx.destination);
       master = ctx.createGain();
-      master.gain.value = MASTER_VOL;
+      master.gain.value = muted ? 0 : MASTER_VOL;
       master.connect(clipper);
       // отдельные шины: эффекты и музыка балансируются независимо
       sfxBus = ctx.createGain(); sfxBus.gain.value = 1;
@@ -293,12 +294,20 @@ const Sound = (function () {
     if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
   }
 
+  /* Полное глушение на время рекламы (п. 4.7 требований Яндекса): плавно в ноль и обратно. */
+  function setMuted(on) {
+    muted = !!on;
+    if (!ctx || !master) return;
+    const t = ctx.currentTime;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setTargetAtTime(muted ? 0 : MASTER_VOL, t, 0.03);
+  }
   function setSfx(v) { sfxEnabled = v; }
   function setMusicEnabled(v) { musicEnabled = v; if (!v) stopMusic(); }
 
   return {
     unlock, play, startMusic, stopMusic,
-    setSfx, setMusicEnabled,
+    setSfx, setMusicEnabled, setMuted,
     get sfxEnabled() { return sfxEnabled; },
     get musicEnabled() { return musicEnabled; }
   };

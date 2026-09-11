@@ -376,32 +376,112 @@ let audioReady = false;
 /* =====================================================================
    ЯНДЕКС SDK
    ===================================================================== */
-function pauseForAd(on) {
-  G.adPlaying = on;
-  if (on) Sound.stopMusic();
-  else { if (Save.data.music) Sound.startMusic(); lastT = performance.now(); }
-}
-/* SDK может прислать onClose/onError не один раз — доводим показ до конца ровно однажды. */
-function showInterstitial(after) {
-  if (ysdk && ysdk.adv && ysdk.adv.showFullscreenAdv) {
+/* ---------- Реклама: одна точка входа ----------
+   Любой показ ставит игру на паузу и полностью глушит звук (п. 4.7 требований),
+   а возвращает их только в onClose/onError. Полноэкранная реклама вызывается лишь
+   на переходах между экранами и не чаще FULLSCREEN_GAP_MS; частоту дополнительно
+   ограничивает сама платформа — тогда onClose приходит с wasShown = false.
+   SDK может прислать onClose/onError не один раз — каждый показ доводится до конца
+   ровно однажды, и награда тоже выдаётся один раз. */
+const HELP_COOLDOWN_MS = 3 * 60 * 1000;
+const Ads = {
+  FULLSCREEN_GAP_MS: 5 * 60 * 1000,
+  lastFullscreen: 0,          // отсчёт от загрузки: первая межстраничная не раньше чем через 5 минут
+  helpReadyAt: 0,             // когда снова доступна «экстренная помощь»
+  pause() {
+    G.adPlaying = true;
+    Sound.stopMusic();
+    Sound.setMuted(true);
+  },
+  resume() {
+    G.adPlaying = false;
+    Sound.setMuted(false);
+    if (audioReady && Save.data.music && !document.hidden) Sound.startMusic();
+    lastT = performance.now();
+  },
+  fullscreenReady() { return performance.now() - Ads.lastFullscreen >= Ads.FULLSCREEN_GAP_MS; },
+  /* Межстраничная реклама на переходе; after() выполняется всегда — показали или нет. */
+  fullscreen(after) {
+    const sdkOk = ysdk && ysdk.adv && ysdk.adv.showFullscreenAdv;
+    if (!sdkOk || G.adPlaying || !Ads.fullscreenReady()) { if (after) after(); return; }
     let done = false;
-    const finish = () => { if (done) return; done = true; pauseForAd(false); if (after) after(); };
-    pauseForAd(true);
-    ysdk.adv.showFullscreenAdv({ callbacks: { onClose: finish, onError: finish } });
-  } else { if (after) after(); }
+    const finish = shown => {
+      if (done) return; done = true;
+      if (shown) Ads.lastFullscreen = performance.now();
+      Ads.resume();
+      if (after) after();
+    };
+    Ads.pause();
+    try {
+      ysdk.adv.showFullscreenAdv({ callbacks: {
+        onClose: wasShown => finish(wasShown !== false),
+        onError: () => finish(false)
+      }});
+    } catch (e) { finish(false); }
+  },
+  /* Видео за награду: только по кнопке игрока. Награда — строго в onRewarded;
+     закрыли раньше времени или ошибка — награды нет, но игра и звук возвращаются. */
+  rewarded(onReward) {
+    if (G.adPlaying) return;
+    if (!(ysdk && ysdk.adv && ysdk.adv.showRewardedVideo)) { // без SDK (локальный запуск) — сразу
+      if (onReward) onReward();
+      Sound.play("reward");
+      return;
+    }
+    let rewarded = false, done = false;
+    const finish = () => {
+      if (done) return; done = true;
+      Ads.resume();
+      if (rewarded) Sound.play("reward"); // во время ролика звук заглушён — радуем игрока уже после
+    };
+    Ads.pause();
+    try {
+      ysdk.adv.showRewardedVideo({ callbacks: {
+        onRewarded: () => { if (rewarded) return; rewarded = true; if (onReward) onReward(); },
+        onClose: finish,
+        onError: finish
+      }});
+    } catch (e) { finish(); }
+  }
+};
+/* «Экстренная помощь»: немного золота за видео прямо в бою, потом долгая перезарядка.
+   Перезарядка ставится только если награда действительно выдана. */
+function helpGold() { return Math.min(250, 60 + 15 * Math.max(0, G.waveIndex)); }
+function askHelp() {
+  if (performance.now() < Ads.helpReadyAt) return;
+  const gold = helpGold();
+  Ads.rewarded(() => {
+    G.gold += gold;
+    Ads.helpReadyAt = performance.now() + HELP_COOLDOWN_MS;
+    addAmount(view.board.x + view.board.w / 2, view.board.y + view.board.h * 0.5, "+", gold, "gold", PAL.gold, F(22), 1.4);
+  });
 }
-/* Награда выдаётся ровно один раз: повторный onClose от SDK не должен её удваивать. */
-function showRewarded(onReward) {
-  if (ysdk && ysdk.adv && ysdk.adv.showRewardedVideo) {
-    let ok = false, done = false;
-    const finish = () => { if (done) return; done = true; pauseForAd(false); if (ok && onReward) onReward(); };
-    pauseForAd(true);
-    ysdk.adv.showRewardedVideo({ callbacks: {
-      onRewarded: () => { ok = true; },
-      onClose: finish,
-      onError: finish
-    }});
-  } else { if (onReward) onReward(); } // локальный тест — награду выдаём сразу
+function fmtCooldown(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+/* Ширина кнопки помощи постоянная — под самую длинную надпись: иначе она дёргалась бы
+   каждую секунду перезарядки, а в тесной верхней строке ещё и прыгала бы с места на место. */
+function helpButtonW(h) {
+  const fs = F(13);
+  return h * 0.62 * 2.1 + Math.max(textW("+250", fs), textW("3:00", fs)) + 12 * view.ui;
+}
+/* Кнопка помощи: значок видео, монета и сумма; на перезарядке — серая с таймером. */
+function drawHelpButton(rightX, y, h) {
+  const left = Ads.helpReadyAt - performance.now(), ready = left <= 0;
+  const label = ready ? "+" + helpGold() : fmtCooldown(left);
+  const fs = F(13), icon = h * 0.62;
+  const w = helpButtonW(h);
+  const x = rightX - w;
+  btn("help_ad", x, y, w, h, "", { color: ready ? "#ff9f45" : PAL.panel2, disabled: !ready });
+  const my = y + (h - Math.min(4 * view.ui, h * 0.13)) / 2;
+  const tc = ready ? "#0e1626" : PAL.dim;
+  const px = x + 6 * view.ui + icon * 0.35;
+  ctx.fillStyle = tc;
+  ctx.beginPath(); ctx.moveTo(px - icon * 0.22, my - icon * 0.3); ctx.lineTo(px + icon * 0.32, my); ctx.lineTo(px - icon * 0.22, my + icon * 0.3); ctx.closePath(); ctx.fill();
+  drawCoin(ctx, x + 6 * view.ui + icon * 1.25, my, icon * 0.36);
+  text(label, x + 8 * view.ui + icon * 1.75, my, fs, tc, "left");
+  return x;
 }
 let sdkLang = null;
 /* Язык площадки: основной источник — SDK, запасной — параметр ?lang= в адресе,
@@ -419,6 +499,8 @@ function initSDK() {
   YaGames.init().then(sdk => {
     ysdk = sdk;
     try { if (ysdk.features && ysdk.features.LoadingAPI) ysdk.features.LoadingAPI.ready(); } catch (e) {}
+    // sticky-баннер: включается и размещается в консоли (вкладка «Реклама»), здесь только показ
+    try { if (ysdk.adv && ysdk.adv.showBannerAdv) ysdk.adv.showBannerAdv(); } catch (e) {}
     try { const l = ysdk.environment && ysdk.environment.i18n && ysdk.environment.i18n.lang; if (l) sdkLang = normLang(l); } catch (e) {}
     startGame();
   }).catch(() => startGame());
@@ -587,7 +669,7 @@ function loop(now) {
     let t = dt * G.speed;
     while (t > 0 && G.state === "playing") { const s = Math.min(t, 0.034); update(s); t -= s; }
   }
-  if (G.state === "crate") updateCrate(dt);
+  if (G.state === "crate" && !G.adPlaying) updateCrate(dt);
   if (G.toast) { G.toast.life -= dt; if (G.toast.life <= 0) G.toast = null; }
   render();
   requestAnimationFrame(loop);
@@ -1129,11 +1211,11 @@ function exitToMenu() {
     G.confirm = {
       lines: [L("exitEndless1"), L("exitEndless2")],
       coins: G.endlessCoins,
-      action: () => { Save.data.coins += G.endlessCoins; Save.write(); G.endlessCoins = 0; showInterstitial(() => { G.state = "menu"; }); }
+      action: () => { Save.data.coins += G.endlessCoins; Save.write(); G.endlessCoins = 0; Ads.fullscreen(() => { G.state = "menu"; }); }
     };
     G.state = "confirm";
   } else {
-    showInterstitial(() => { G.state = "menu"; });
+    Ads.fullscreen(() => { G.state = "menu"; });
   }
 }
 
@@ -1141,7 +1223,7 @@ function exitToMenu() {
 function handleTap(id, b) {
   if (id === "toast_ad") {
     const rew = G.toast && G.toast.reward; G.toast = null;
-    if (rew) showRewarded(() => { Save.data.coins += rew; Save.write(); Sound.play("reward"); });
+    if (rew) Ads.rewarded(() => { Save.data.coins += rew; Save.write(); });
     return;
   }
   switch (G.state) {
@@ -1165,10 +1247,11 @@ function handleTap(id, b) {
       break;
     case "levels":
       if (id === "back") G.state = "menu";
-      else if (id === "endless") startEndless();
+      // межстраничная реклама — перед началом боя, пока игрок ещё ничего не строит
+      else if (id === "endless") Ads.fullscreen(() => startEndless());
       else if (id.indexOf("lvl_") === 0) {
         const n = +id.slice(4);
-        if (n <= Save.data.unlocked) startLevel(n);
+        if (n <= Save.data.unlocked) Ads.fullscreen(() => startLevel(n));
       }
       break;
     case "shop": handleShop(id); break;
@@ -1186,6 +1269,7 @@ function handleTap(id, b) {
       if (id === "pause") G.state = "paused";
       else if (id === "speed") toggleSpeed();
       else if (id === "startwave") callNextWave();
+      else if (id === "help_ad") askHelp();
       else if (id === "sfxq") { Save.data.sfx = !Save.data.sfx; Sound.setSfx(Save.data.sfx); Save.write(); }
       else if (id.indexOf("tw_") === 0) { const t = id.slice(3); G.selType = (G.selType === t ? null : t); G.selTower = null; }
       else if (id === "upg") upgradeTower();
@@ -1195,7 +1279,7 @@ function handleTap(id, b) {
       break;
     case "paused":
       if (id === "resume") { G.state = "playing"; lastT = performance.now(); }
-      else if (id === "restart") { const m = G.mode, n = G.level; showInterstitial(() => m === "level" ? startLevel(n) : startEndless()); }
+      else if (id === "restart") { const m = G.mode, n = G.level; Ads.fullscreen(() => m === "level" ? startLevel(n) : startEndless()); }
       else if (id === "tomenu") { exitToMenu(); }
       else if (id === "sfx") { Save.data.sfx = !Save.data.sfx; Sound.setSfx(Save.data.sfx); Save.write(); }
       else if (id === "music") { Save.data.music = !Save.data.music; Sound.setMusicEnabled(Save.data.music); if (Save.data.music) Sound.startMusic(); Save.write(); }
@@ -1205,18 +1289,18 @@ function handleTap(id, b) {
       else if (id === "cf_no") { G.confirm = null; G.state = "paused"; }
       break;
     case "win":
-      if (id === "next") { const n = Math.min(10, G.level + 1); showInterstitial(() => startLevel(n)); }
-      else if (id === "replay") { const n = G.level; showInterstitial(() => startLevel(n)); }
-      else if (id === "tomenu") { showInterstitial(() => { G.state = "menu"; }); }
-      else if (id === "x2" && !G.x2Used) { showRewarded(() => { Save.data.coins += G.pendingCoins; Save.write(); G.x2Used = true; Sound.play("reward"); addAmount(view.w / 2, view.h / 2, "+", G.pendingCoins, "gem", PAL.gem, F(26), 1.6); }); }
+      if (id === "next") { const n = Math.min(10, G.level + 1); Ads.fullscreen(() => startLevel(n)); }
+      else if (id === "replay") { const n = G.level; Ads.fullscreen(() => startLevel(n)); }
+      else if (id === "tomenu") { Ads.fullscreen(() => { G.state = "menu"; }); }
+      else if (id === "x2" && !G.x2Used) { Ads.rewarded(() => { Save.data.coins += G.pendingCoins; Save.write(); G.x2Used = true; addAmount(view.w / 2, view.h / 2, "+", G.pendingCoins, "gem", PAL.gem, F(26), 1.6); }); }
       break;
     case "gameover":
       if (id === "continue" && !G.continueUsed) {
-        showRewarded(() => { G.continueUsed = true; G.lives = Math.max(10, Math.floor(G.maxLives * 0.5)); clearBoardEnemies(); G.state = "playing"; lastT = performance.now(); Sound.play("reward"); });
+        Ads.rewarded(() => { G.continueUsed = true; G.lives = Math.max(10, Math.floor(G.maxLives * 0.5)); clearBoardEnemies(); G.state = "playing"; });
       } else if (id === "x2" && !G.x2Used) {
-        showRewarded(() => { Save.data.coins += G.pendingCoins; Save.write(); G.x2Used = true; Sound.play("reward"); });
-      } else if (id === "restart") { const m = G.mode, n = G.level; showInterstitial(() => m === "level" ? startLevel(n) : startEndless()); }
-      else if (id === "tomenu") { showInterstitial(() => { G.state = "menu"; }); }
+        Ads.rewarded(() => { Save.data.coins += G.pendingCoins; Save.write(); G.x2Used = true; });
+      } else if (id === "restart") { const m = G.mode, n = G.level; Ads.fullscreen(() => m === "level" ? startLevel(n) : startEndless()); }
+      else if (id === "tomenu") { Ads.fullscreen(() => { G.state = "menu"; }); }
       break;
   }
 }
@@ -1365,7 +1449,7 @@ function buyCrateCoins(kind, cost) {
   Save.data.coins -= cost; Save.write();
   grantCrate(kind);
 }
-function buyCrateAd(kind) { showRewarded(() => grantCrate(kind)); }
+function buyCrateAd(kind) { Ads.rewarded(() => grantCrate(kind)); }
 
 /* ---------- Коллекция / отряд ---------- */
 function ownsCannon(id) { return Save.data.owned.indexOf(id) >= 0; }
@@ -3467,14 +3551,8 @@ function drawHUD() {
       chip(x0 + sw + gapC, h / 2 - 9 * view.ui, cw, 18 * view.ui, "rgba(255,209,102,0.4)");
       text(ct, x0 + sw + gapC + cw / 2, h / 2, F(13), PAL.gold);
     }
+    if (G.state === "playing") drawHelpButton(hw - pad, cy2, ch);
     return;
-  }
-  // центр — счёт
-  text(L("score") + " " + G.score, view.w / 2, h * 0.34, F(15), PAL.text);
-  if (ct) {
-    const cw = textW(ct, F(14)) + 18 * view.ui;
-    chip(view.w / 2 - cw / 2, h * 0.72 - 9 * view.ui, cw, 18 * view.ui, "rgba(255,209,102,0.4)");
-    text(ct, view.w / 2, h * 0.72, F(14), PAL.gold);
   }
   // правые кнопки
   const bs = h * 0.66, by = (h - bs) / 2;
@@ -3484,6 +3562,32 @@ function drawHUD() {
   btn("speed", bx, by, bs * 1.3, bs, "x" + G.speed, { color: G.speed > 1 ? PAL.good : PAL.panel2, textColor: G.speed > 1 ? "#0e1626" : PAL.text, fs: F(15) });
   bx -= bs * 1.3 + 8 * view.ui;
   btn("sfxq", bx, by, bs, bs, Save.data.sfx ? "♪" : "×", { color: PAL.panel2, textColor: Save.data.sfx ? PAL.good : PAL.dim, fs: F(16) });
+  // счёт и комбо — по центру экрана, но без наезда на плашку золота слева и кнопки справа
+  const scoreT = L("score") + " " + G.score;
+  const cw = ct ? textW(ct, F(14)) + 18 * view.ui : 0;
+  const leftBound = gx + 84 * view.ui + 8 * view.ui;
+  let rightBound = bx - 8 * view.ui;
+  if (G.state === "playing") {
+    // место выбирается с запасом на длинный счёт и комбо, а не по текущему счёту —
+    // иначе кнопка перескакивала бы посреди боя, когда у счёта прибавится разряд
+    const need = Math.max(textW(L("score") + " 8888888", F(15)), textW(L("combo") + " x8.8", F(14)) + 18 * view.ui);
+    const hbw = helpButtonW(bs), below = h + 6 * view.ui;
+    if (rightBound - hbw - 8 * view.ui - leftBound >= need || view.board.y < below + bs + 6 * view.ui) {
+      drawHelpButton(rightBound, by, bs);
+      rightBound -= hbw + 8 * view.ui;
+    } else {
+      // узкий портрет: в верхней строке тесно — кнопка встаёт сразу под ней справа, над полем
+      drawHelpButton(view.w - pad, below, bs);
+    }
+  }
+  const half = Math.max(textW(scoreT, F(15)), cw) / 2, room = Math.max(0, rightBound - leftBound);
+  const scx = 2 * half <= room ? clamp(view.w / 2, leftBound + half, rightBound - half) : leftBound + room / 2;
+  textClip(scoreT, scx, h * 0.34, room, F(15), PAL.text, "center");
+  if (ct) {
+    const cwv = Math.min(cw, room);
+    chip(scx - cwv / 2, h * 0.72 - 9 * view.ui, cwv, 18 * view.ui, "rgba(255,209,102,0.4)");
+    textClip(ct, scx, h * 0.72, cwv - 12 * view.ui, F(14), PAL.gold, "center");
+  }
 }
 
 /* ---------- Инфо о волне + кнопка старта (под полем, над доком) ---------- */
