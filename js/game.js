@@ -1274,6 +1274,7 @@ function grantCrate(kind) {
   G.crateResult = { id, isNew, coins };
   G.crateAnim = 0;
   G.crateReel = buildCrateReel(kind, id);
+  warmReelCards();
   G.crateTick = -1; G.crateRevealed = false;
   if (G.state !== "crate") G.prevState = G.state;
   G.state = "crate";
@@ -1281,7 +1282,12 @@ function grantCrate(kind) {
 /* Рулетка ящика. Выигрыш уже выбран и сохранён — лента лишь красиво к нему
    подкручивает, поэтому закрытие игры во время прокрутки награду не отнимет.
    Остальные карточки на ленте выпадают по тем же шансам, что и сам ящик. */
-const CRATE_SPIN = 3.2, CRATE_PAUSE = 0.45, REEL_STOP = 28;
+/* Профиль прокрутки: короткий разгон, ровный быстрый бег и долгое торможение.
+   Скорость ограничена — при старой кривой (x^4) первые кадры прыгали на сотню
+   пикселей, и лента выглядела дёрганой. Остановка всё равно точно на выигрыше:
+   максимальная скорость вычисляется из нужного пути. */
+const REEL_ACCEL = 0.35, REEL_CRUISE = 1.55, REEL_BRAKE = 3.0;
+const CRATE_SPIN = REEL_ACCEL + REEL_CRUISE + REEL_BRAKE, CRATE_PAUSE = 0.45, REEL_STOP = 60;
 function buildCrateReel(kind, winId) {
   const items = [];
   for (let i = 0; i < REEL_STOP + 6; i++) {
@@ -1292,11 +1298,18 @@ function buildCrateReel(kind, winId) {
   // указатель останавливается не строго по центру карточки — живее, но всегда на выигрыше
   return { items, land: (Math.random() - 0.5) * 0.5 };
 }
-/* Положение ленты в карточках: быстрый старт и долгое плавное торможение. */
-function crateReelPos() {
-  const t = Math.min(1, G.crateAnim / CRATE_SPIN);
-  return (1 - Math.pow(1 - t, 4)) * (REEL_STOP + G.crateReel.land);
+/* Положение ленты (в карточках) и её скорость (карточек в секунду) в момент t. */
+function reelMotion(t) {
+  const dist = REEL_STOP + G.crateReel.land;
+  const vmax = dist / (REEL_ACCEL / 2 + REEL_CRUISE + REEL_BRAKE / 3);
+  if (t <= 0) return { pos: 0, vel: 0 };
+  if (t < REEL_ACCEL) return { pos: vmax * t * t / (2 * REEL_ACCEL), vel: vmax * t / REEL_ACCEL };
+  const xa = vmax * REEL_ACCEL / 2;
+  if (t < REEL_ACCEL + REEL_CRUISE) return { pos: xa + vmax * (t - REEL_ACCEL), vel: vmax };
+  const xb = xa + vmax * REEL_CRUISE, u = Math.min(1, (t - REEL_ACCEL - REEL_CRUISE) / REEL_BRAKE);
+  return { pos: xb + vmax * REEL_BRAKE / 3 * (1 - Math.pow(1 - u, 3)), vel: vmax * (1 - u) * (1 - u) };
 }
+function crateReelPos() { return reelMotion(G.crateAnim).pos; }
 function updateCrate(dt) {
   G.crateAnim += dt;
   if (!G.crateReel) return;
@@ -1355,6 +1368,8 @@ function renderMain() {
   G.hot = [];
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.clearRect(0, 0, view.w, view.h);
+  // экран ящика сам заливает весь фон — небо и холмы под ним рисовать незачем
+  if (G.state === "crate") { drawCrate(); return; }
   // фон
   const bg = ctx.createLinearGradient(0, 0, 0, view.h);
   bg.addColorStop(0, "#27507f"); bg.addColorStop(0.5, "#1f4560"); bg.addColorStop(1, "#1a3d44");
@@ -1367,7 +1382,6 @@ function renderMain() {
   if (G.state === "squad") { drawSquad(); return; }
   if (G.state === "settings") { drawSettings(); return; }
   if (G.state === "book") { drawBook(); return; }
-  if (G.state === "crate") { drawCrate(); return; }
 
   // игровые состояния (playing/paused/win/gameover) рисуют поле
   if (G.shake > 0) { ctx.save(); const s = G.shake * 8 * view.ui; ctx.translate(rnd(-s, s), rnd(-s, s)); }
@@ -4112,29 +4126,68 @@ function drawCannonCell(x, y, w, h, id) {
 }
 
 /* ---------- Открытие ящика (награда) ---------- */
-/* Карточка на ленте рулетки: рамка и полоса цвета редкости, иконка и название пушки. */
-function drawReelCard(x, y, w, h, id, glow) {
+/* Карточки ленты рисуются один раз в отдельные картинки и дальше только копируются:
+   градиенты, обрезка и иконка пушки в каждом кадре давали рывки на слабых телефонах.
+   Кэш сбрасывается при смене размера карточки, плотности экрана или языка. */
+const ReelCards = { key: "", imgs: {} };
+function reelCardImage(id, w, h) {
+  const dpr = view.dpr || 1, key = Math.round(w) + "x" + Math.round(h) + "@" + dpr + LANG;
+  if (ReelCards.key !== key) { ReelCards.key = key; ReelCards.imgs = {}; }
+  if (ReelCards.imgs[id]) return ReelCards.imgs[id];
+  const pad = Math.ceil(3 * view.ui);
+  const cv = document.createElement("canvas");
+  cv.width = Math.ceil((w + pad * 2) * dpr); cv.height = Math.ceil((h + pad * 2) * dpr);
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, pad * dpr, pad * dpr);
   const def = TOWERS[id], rc = RARITY[def.rarity].color, rad = 12 * view.ui;
-  ctx.save();
-  if (glow > 0) { ctx.shadowColor = rc; ctx.shadowBlur = 28 * view.ui * glow; }
-  const gr = ctx.createLinearGradient(0, y, 0, y + h);
+  const gr = g.createLinearGradient(0, 0, 0, h);
   gr.addColorStop(0, shade(rc, 0.42)); gr.addColorStop(1, shade(rc, 0.2));
-  rr(ctx, x, y, w, h, rad); ctx.fillStyle = gr; ctx.fill();
-  ctx.restore();
-  ctx.save(); rr(ctx, x, y, w, h, rad); ctx.clip();
-  ctx.fillStyle = rc; ctx.fillRect(x, y, w, Math.max(3, 6 * view.ui));
-  ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fillRect(x, y, w, h * 0.45);
-  ctx.restore();
-  ctx.strokeStyle = rc; ctx.lineWidth = Math.max(2, 3.5 * view.ui);
-  rr(ctx, x, y, w, h, rad); ctx.stroke();
-  drawTowerIcon(ctx, x + w / 2, y + h * 0.43, w * 0.64, id);
-  textClip(cName(id), x + w / 2, y + h * 0.84, w - 10 * view.ui, F(11), PAL.text, "center");
+  rr(g, 0, 0, w, h, rad); g.fillStyle = gr; g.fill();
+  g.save(); rr(g, 0, 0, w, h, rad); g.clip();
+  g.fillStyle = rc; g.fillRect(0, 0, w, Math.max(3, 6 * view.ui));
+  g.fillStyle = "rgba(255,255,255,0.07)"; g.fillRect(0, 0, w, h * 0.45);
+  g.restore();
+  g.strokeStyle = rc; g.lineWidth = Math.max(2, 3.5 * view.ui);
+  rr(g, 0, 0, w, h, rad); g.stroke();
+  drawTowerIcon(g, w / 2, h * 0.43, w * 0.64, id);
+  // название тем же шрифтом, что у text(); длинное ужимается под ширину карточки
+  const name = cName(id), maxW = w - 10 * view.ui;
+  const font = s => "bold " + s + "px \"Trebuchet MS\", \"Segoe UI\", sans-serif";
+  let fs = F(11);
+  g.font = font(fs);
+  while (fs > 8 && g.measureText(name).width > maxW) { fs--; g.font = font(fs); }
+  g.fillStyle = PAL.text; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText(name, w / 2, h * 0.84);
+  ReelCards.imgs[id] = { cv, pad };
+  return ReelCards.imgs[id];
+}
+/* Размер карточки ленты — один на отрисовку и на подготовку картинок. */
+function reelCardSize() {
+  const cw = Math.min(120 * view.ui, view.w * 0.27), gap = 10 * view.ui;
+  return { cw, ch: cw * 1.28, step: cw + gap };
+}
+/* Картинки всех пушек готовятся сразу при открытии ящика: иначе их отрисовка
+   пришлась бы на первые кадры прокрутки и дала бы рывок на слабом телефоне. */
+function warmReelCards() {
+  const { cw, ch } = reelCardSize();
+  for (const cid of CANNON_IDS) reelCardImage(cid, cw, ch);
+}
+/* Карточка на ленте: готовая картинка, у выигрышной — свечение цвета редкости. */
+function drawReelCard(x, y, w, h, id, glow) {
+  const im = reelCardImage(id, w, h);
+  if (glow > 0) {
+    const rc = RARITY[TOWERS[id].rarity].color;
+    ctx.save(); ctx.shadowColor = rc; ctx.shadowBlur = 28 * view.ui * glow;
+    rr(ctx, x, y, w, h, 12 * view.ui); ctx.fillStyle = rc; ctx.fill();
+    ctx.restore();
+  }
+  ctx.drawImage(im.cv, x - im.pad, y - im.pad, w + im.pad * 2, h + im.pad * 2);
 }
 /* Прокрутка: лента карточек под золотым указателем, края уходят в тень.
    После остановки выигрышная карточка пульсирует, затем открывается награда. */
 function drawCrateReel() {
   const cxp = view.w / 2, cyp = view.h * 0.46;
-  const cw = Math.min(120 * view.ui, view.w * 0.27), ch = cw * 1.28, gap = 10 * view.ui, step = cw + gap;
+  const { cw, ch, step } = reelCardSize();
   const pos = crateReelPos(), items = G.crateReel.items;
   const settled = G.crateAnim >= CRATE_SPIN;
   const pulse = settled ? 0.6 + 0.4 * Math.sin((G.crateAnim - CRATE_SPIN) * 18) : 0;
@@ -4143,8 +4196,16 @@ function drawCrateReel() {
   ctx.fillStyle = "rgba(6,12,24,0.55)"; ctx.fillRect(0, top, view.w, bandH);
   const first = Math.max(0, Math.floor(pos - cxp / step) - 1);
   const last = Math.min(items.length - 1, Math.ceil(pos + cxp / step) + 1);
+  // на скорости за карточкой тянется лёгкий шлейф — движение читается плавным, а не рывками
+  const vel = reelMotion(G.crateAnim).vel * step, smear = Math.min(cw * 0.35, vel / 60 * 0.8);
   for (let i = first; i <= last; i++) {
     const x = cxp + (i - pos) * step - cw / 2;
+    if (smear > 4) {
+      const im = reelCardImage(items[i], cw, ch);
+      ctx.globalAlpha = 0.28;
+      ctx.drawImage(im.cv, x + smear - im.pad, cyp - ch / 2 - im.pad, cw + im.pad * 2, ch + im.pad * 2);
+      ctx.globalAlpha = 1;
+    }
     drawReelCard(x, cyp - ch / 2, cw, ch, items[i], settled && i === REEL_STOP ? pulse : 0);
   }
   const fade = Math.min(view.w * 0.22, 160 * view.ui);

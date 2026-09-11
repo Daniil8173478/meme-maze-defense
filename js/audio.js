@@ -201,7 +201,7 @@ const Sound = (function () {
 
   /* Минимальные паузы между повторами: на ускорении x5 десяток башен стреляет
      одновременно, и без этого выстрелы сливаются в кашу. */
-  const GAP = { shoot: 0.05, hit: 0.05, frost: 0.055, snipe: 0.06, pop: 0.045, combo: 0.09, coin: 0.04, spin: 0.028 };
+  const GAP = { shoot: 0.05, hit: 0.05, frost: 0.055, snipe: 0.06, pop: 0.045, combo: 0.09, coin: 0.04, spin: 0.055 };
   function play(name, arg) {
     const f = FX[name];
     if (!f) return;
