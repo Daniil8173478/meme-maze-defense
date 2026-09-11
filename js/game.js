@@ -216,6 +216,11 @@ function layout() {
   canvas.style.height = h + "px";
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   view.ui = clamp(Math.min(w, h) / 720, 0.72, 1.5);
+  // телефон лёжа: низкий горизонтальный экран. Пушки уходят в колонку справа,
+  // верхняя строка тоньше — поле получает почти всю высоту экрана.
+  view.side = w > h && h <= 500;
+  if (view.side) { layoutSide(w, h); return; }
+  view.dockW = 0;
   view.hudH = Math.round(54 * view.ui);
   view.dockH = Math.round(94 * view.ui);
   const padX = 10 * view.ui, padY = 8 * view.ui;
@@ -227,6 +232,41 @@ function layout() {
     cell, w: bw, h: bh,
     x: Math.round((w - bw) / 2),
     y: Math.round(view.hudH + (h - view.hudH - view.dockH - bh) / 2)
+  };
+}
+/* Раскладка для телефона лёжа: высоту определяет поле, всё, что остаётся по ширине,
+   отдаётся колонке пушек (150–260 px). На узком экране клетка чуть уменьшается,
+   чтобы колонка не стала уже 150 px. */
+function layoutSide(w, h) {
+  view.hudH = Math.round(Math.max(26, 40 * view.ui));
+  view.dockH = 0;
+  const pad = 6 * view.ui, availH = h - view.hudH - pad * 2;
+  let cell = Math.floor(availH / GRID_ROWS);
+  let dockW = Math.min(260, w - cell * GRID_COLS - pad * 3);
+  if (dockW < 150) {
+    dockW = 150;
+    cell = Math.min(cell, Math.floor((w - dockW - pad * 3) / GRID_COLS));
+  }
+  view.dockW = Math.round(dockW);
+  const bw = cell * GRID_COLS, bh = cell * GRID_ROWS;
+  view.board = {
+    cell, w: bw, h: bh,
+    x: Math.round((w - view.dockW - bw) / 2),
+    y: Math.round(view.hudH + (h - view.hudH - bh) / 2)
+  };
+}
+/* Разметка правой колонки сверху вниз: кнопки управления, подпись волны,
+   карточки пушек (или панель выбранной башни), внизу — место под кнопку «В бой». */
+function sideCol() {
+  const x = view.w - view.dockW, w = view.dockW, pad = 6 * view.ui;
+  const ctrlH = Math.round(Math.max(30, 40 * view.ui));
+  const labelH = Math.round(Math.max(14, 18 * view.ui));
+  const startBtnH = Math.round(Math.max(34, 44 * view.ui)), hintH = Math.round(Math.max(14, 16 * view.ui));
+  const startTop = view.h - pad - startBtnH - hintH;
+  return {
+    x, w, pad, ctrlY: pad, ctrlH, labelY: pad + ctrlH + labelH / 2 + 2,
+    cardsTop: pad + ctrlH + labelH + pad, cardsBottom: startTop - pad,
+    startTop, startBtnH, hintH
   };
 }
 function cx(c) { return view.board.x + c * view.board.cell; }
@@ -516,7 +556,7 @@ function startNextWave() {
   G.spawnList = buildSpawnList(wave);
   G.waveActive = true;
   Sound.play("wave");
-  addText(view.w / 2, view.board.y + 30 * view.ui, L("wave") + " " + (G.waveIndex + 1), PAL.gold, F(24), 1.4);
+  addText(view.board.x + view.board.w / 2, view.board.y + 30 * view.ui, L("wave") + " " + (G.waveIndex + 1), PAL.gold, F(24), 1.4);
 }
 /* Сила волны бесконечного режима. Раньше старт был как у 8-го уровня (8 + 1.4n) и новичок
    погибал на 4-6 волне; теперь разгон с уровня 1, а к 20-й волне сила та же, что была. */
@@ -595,12 +635,12 @@ function onWaveCleared() {
   if (G.mode === "level" && G.waveIndex >= G.waves.length - 1) { winLevel(); return; }
   const bonus = 20 + G.waveIndex * 5;
   G.gold += bonus;
-  addAmount(view.w / 2, view.board.y + view.board.h - 24 * view.ui, "+", bonus, "gold", PAL.gold, F(18), 1.2);
+  addAmount(view.board.x + view.board.w / 2, view.board.y + view.board.h - 24 * view.ui, "+", bonus, "gold", PAL.gold, F(18), 1.2);
   G.betweenTimer = 5; // таймер до следующей волны (можно начать раньше)
   if (G.mode === "endless") {
     const cw = endlessWaveCoins(G.waveIndex + 1);
     G.endlessCoins += cw;
-    addAmount(view.w / 2, view.board.y + 56 * view.ui, "+", cw, "gem", PAL.gem, F(17), 1.4);
+    addAmount(view.board.x + view.board.w / 2, view.board.y + 56 * view.ui, "+", cw, "gem", PAL.gem, F(17), 1.4);
     if (G.waveIndex + 1 > Save.data.endlessBest) { Save.data.endlessBest = G.waveIndex + 1; Save.write(); }
   }
 }
@@ -675,7 +715,7 @@ function updateEnemies(dt) {
       G.combo = 0;
       G.shake = Math.min(1, G.shake + 0.5);
       Sound.play("life");
-      addAmount(view.w / 2, view.board.y + 30 * view.ui, "-", e.base.cost, "life", PAL.danger, F(22), 1.2);
+      addAmount(view.board.x + view.board.w / 2, view.board.y + 30 * view.ui, "-", e.base.cost, "life", PAL.danger, F(22), 1.2);
       if (G.lives <= 0) { G.lives = 0; gameOver(); return; }
     }
   }
@@ -1078,7 +1118,7 @@ function callNextWave() {
   if (G.waveIndex >= 0 && G.betweenTimer > 0) {
     const bonus = Math.ceil(G.betweenTimer * (6 + G.waveIndex));
     G.gold += bonus;
-    addAmount(view.w / 2, view.board.y + view.board.h - 46 * view.ui, "+", bonus, "gold", PAL.gold, F(18), 1.3);
+    addAmount(view.board.x + view.board.w / 2, view.board.y + view.board.h - 46 * view.ui, "+", bonus, "gold", PAL.gold, F(18), 1.3);
   }
   G.betweenTimer = 0;
   startNextWave();
@@ -3399,14 +3439,14 @@ function drawStar(g, x, y, r, filled) {
 
 /* ---------- HUD ---------- */
 function drawHUD() {
-  const h = view.hudH;
+  const h = view.hudH, hw = view.w - (view.side ? view.dockW : 0);
   const bar = ctx.createLinearGradient(0, 0, 0, h);
   bar.addColorStop(0, shade(PAL.panel, 1.18));
   bar.addColorStop(1, shade(PAL.panel, 0.82));
-  ctx.fillStyle = bar; ctx.fillRect(0, 0, view.w, h);
-  ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fillRect(0, 0, view.w, Math.max(1, 2 * view.ui));
-  ctx.fillStyle = "rgba(6,12,24,0.45)"; ctx.fillRect(0, h - Math.max(1, 2 * view.ui), view.w, Math.max(1, 2 * view.ui));
-  const pad = 12 * view.ui, ch = h * 0.56, cy2 = (h - ch) / 2;
+  ctx.fillStyle = bar; ctx.fillRect(0, 0, hw, h);
+  ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fillRect(0, 0, hw, Math.max(1, 2 * view.ui));
+  ctx.fillStyle = "rgba(6,12,24,0.45)"; ctx.fillRect(0, h - Math.max(1, 2 * view.ui), hw, Math.max(1, 2 * view.ui));
+  const pad = (view.side ? 8 : 12) * view.ui, ch = h * (view.side ? 0.72 : 0.56), cy2 = (h - ch) / 2;
   // жизни
   chip(pad, cy2, 62 * view.ui, ch, "rgba(239,71,111,0.35)");
   drawHeart(ctx, pad + 16 * view.ui, h / 2, 9 * view.ui, PAL.danger);
@@ -3416,10 +3456,22 @@ function drawHUD() {
   chip(gx, cy2, 84 * view.ui, ch, "rgba(255,209,102,0.32)");
   drawCoin(ctx, gx + 16 * view.ui, h / 2, 9 * view.ui);
   text(String(G.gold), gx + 30 * view.ui, h / 2, F(17), PAL.gold, "left");
+  const ct = G.combo > 1 ? L("combo") + " x" + comboMult().toFixed(1).replace(/\.0$/, "") : "";
+  if (view.side) {
+    // тонкая строка: счёт и комбо в одну линию, кнопки управления живут в правой колонке
+    const st = L("score") + " " + G.score, sw = textW(st, F(14));
+    const cw = ct ? textW(ct, F(13)) + 18 * view.ui : 0, gapC = ct ? 10 * view.ui : 0;
+    const x0 = hw / 2 - (sw + gapC + cw) / 2;
+    text(st, x0, h / 2, F(14), PAL.text, "left");
+    if (ct) {
+      chip(x0 + sw + gapC, h / 2 - 9 * view.ui, cw, 18 * view.ui, "rgba(255,209,102,0.4)");
+      text(ct, x0 + sw + gapC + cw / 2, h / 2, F(13), PAL.gold);
+    }
+    return;
+  }
   // центр — счёт
   text(L("score") + " " + G.score, view.w / 2, h * 0.34, F(15), PAL.text);
-  if (G.combo > 1) {
-    const ct = L("combo") + " x" + comboMult().toFixed(1).replace(/\.0$/, "");
+  if (ct) {
     const cw = textW(ct, F(14)) + 18 * view.ui;
     chip(view.w / 2 - cw / 2, h * 0.72 - 9 * view.ui, cw, 18 * view.ui, "rgba(255,209,102,0.4)");
     text(ct, view.w / 2, h * 0.72, F(14), PAL.gold);
@@ -3436,6 +3488,7 @@ function drawHUD() {
 
 /* ---------- Инфо о волне + кнопка старта (под полем, над доком) ---------- */
 function drawWaveInfo() {
+  if (view.side) { drawSideWaveInfo(); return; }
   const cur = Math.max(0, G.waveIndex + 1);
   const total = G.mode === "level" ? " / " + G.waves.length : "";
   const modeLbl = G.mode === "level" ? "   ·   " + L("level") + " " + G.level : "   ·   " + L("endless");
@@ -3475,8 +3528,36 @@ function drawWaveInfo() {
   }
 }
 
+/* Подпись волны и кнопка старта в правой колонке (телефон лёжа). */
+function drawSideWaveInfo() {
+  const c = sideCol(), cxp = c.x + c.w / 2, bw = c.w - c.pad * 2, bx = c.x + c.pad;
+  const cur = Math.max(0, G.waveIndex + 1);
+  const total = G.mode === "level" ? "/" + G.waves.length : "";
+  const lbl = L("wave") + " " + cur + total + "  ·  " + (G.mode === "level" ? L("level") + " " + G.level : L("endless"));
+  textClip(lbl, cxp, c.labelY, bw, F(12), PAL.dim, "center");
+  if (G.waveActive || G.state !== "playing") return;
+  const suffix = G.mode === "level" ? " / " + G.waves.length : "";
+  const hintY = c.startTop + c.startBtnH + c.hintH / 2 + 1;
+  const glow = 0.5 + Math.sin(performance.now() / 300) * 0.5;
+  ctx.save(); ctx.shadowColor = PAL.good; ctx.shadowBlur = (6 + glow * 12) * view.ui;
+  if (G.waveIndex < 0) {
+    let label = L("toBattle") + " " + L("wave") + " 1" + suffix;
+    if (textW(label, F(14)) > bw - 12 * view.ui) label = L("toBattle");
+    btn("startwave", bx, c.startTop, bw, c.startBtnH, label, { color: PAL.good, fs: F(14) });
+    ctx.restore();
+    textClip(L("placeHint"), cxp, hintY, bw, F(11), PAL.dim, "center");
+  } else {
+    const t = Math.max(0, G.betweenTimer), bonus = Math.ceil(t * (6 + G.waveIndex));
+    let label = L("startEarlier") + " (" + t.toFixed(1) + ")";
+    if (textW(label, F(13)) > bw - 12 * view.ui) label = t.toFixed(1);
+    btn("startwave", bx, c.startTop, bw, c.startBtnH, label, { color: PAL.gold, fs: F(13) });
+    ctx.restore();
+    textClip(L("bonus") + " +" + bonus, cxp, hintY, bw, F(11), PAL.gold, "center");
+  }
+}
 /* ---------- Нижний док / панель башни ---------- */
 function drawDock() {
+  if (view.side) { drawSideDock(); return; }
   const dh = view.dockH, dy = view.h - dh;
   const bar = ctx.createLinearGradient(0, dy, 0, view.h);
   bar.addColorStop(0, shade(PAL.panel, 1.12));
@@ -3492,10 +3573,57 @@ function drawDock() {
   const pad = 8 * view.ui;
   const bw = (view.w - pad * (n + 1)) / n;
   const bh = dh - pad * 2;
-  for (let i = 0; i < squad.length; i++) {
-    const type = squad[i];
+  for (let i = 0; i < squad.length; i++) drawCannonCard(squad[i], pad + i * (bw + pad), dy + pad, bw, bh);
+}
+/* Правая колонка на телефоне лёжа: управление, карточки пушек или панель башни. */
+function drawSideDock() {
+  const c = sideCol();
+  const bar = ctx.createLinearGradient(c.x, 0, view.w, 0);
+  bar.addColorStop(0, shade(PAL.panel, 1.1)); bar.addColorStop(1, shade(PAL.panel, 0.84));
+  ctx.fillStyle = bar; ctx.fillRect(c.x, 0, c.w, view.h);
+  ctx.fillStyle = "rgba(6,12,24,0.45)"; ctx.fillRect(c.x, 0, Math.max(1, 2 * view.ui), view.h);
+  ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fillRect(c.x + Math.max(1, 2 * view.ui), 0, Math.max(1, 2 * view.ui), view.h);
+  // кнопки управления: в тонкой верхней строке они стали бы слишком мелкими для пальца
+  const gap = 6 * view.ui, bw3 = (c.w - c.pad * 2 - gap * 2) / 3;
+  btn("sfxq", c.x + c.pad, c.ctrlY, bw3, c.ctrlH, Save.data.sfx ? "♪" : "×", { color: PAL.panel2, textColor: Save.data.sfx ? PAL.good : PAL.dim, fs: F(16) });
+  btn("speed", c.x + c.pad + bw3 + gap, c.ctrlY, bw3, c.ctrlH, "x" + G.speed, { color: G.speed > 1 ? PAL.good : PAL.panel2, textColor: G.speed > 1 ? "#0e1626" : PAL.text, fs: F(15) });
+  btn("pause", c.x + c.pad + (bw3 + gap) * 2, c.ctrlY, bw3, c.ctrlH, "II", { color: PAL.panel2, textColor: PAL.text, fs: F(16) });
+  if (G.selTower) { drawSideTowerPanel(c); return; }
+  const squad = Save.data.squad, n = Math.max(1, squad.length), cgap = 5 * view.ui;
+  const ch = Math.min(84, (c.cardsBottom - c.cardsTop - cgap * (n - 1)) / n);
+  for (let i = 0; i < squad.length; i++) drawCannonCard(squad[i], c.x + c.pad, c.cardsTop + i * (ch + cgap), c.w - c.pad * 2, ch);
+}
+/* Панель выбранной башни в колонке: шапка, характеристики, прочность и кнопки столбиком. */
+function drawSideTowerPanel(c) {
+  const tw = G.selTower, def = TOWERS[tw.type], st = def.levels[tw.level];
+  const x = c.x + c.pad, w = c.w - c.pad * 2;
+  let y = c.cardsTop;
+  const iconS = Math.min(42, w * 0.24);
+  drawTowerIcon(ctx, x + iconS * 0.55, y + iconS * 0.5, iconS, tw.type);
+  const nx = x + iconS * 1.2;
+  textClip(cName(tw.type), nx, y + iconS * 0.26, w - (nx - x), F(13), PAL.text, "left");
+  const lvT = L("lvl") + (tw.level + 1), lvW = textW(lvT, F(11)) + 14 * view.ui, lvH = 16 * view.ui;
+  chip(nx, y + iconS * 0.5, lvW, lvH, RARITY[def.rarity].color + "88");
+  text(lvT, nx + lvW / 2, y + iconS * 0.5 + lvH / 2, F(11), RARITY[def.rarity].color);
+  y += iconS + 4 * view.ui;
+  const stats = L("dmg") + " " + st.dmg + " · " + L("range") + " " + st.range.toFixed(1) + " · " + L("rate") + " " + st.rate.toFixed(1);
+  textClip(stats, x, y + 7 * view.ui, w, F(11), PAL.dim, "left");
+  y += 16 * view.ui;
+  const hph = 7 * view.ui, hk = clamp(tw.hp / tw.maxHp, 0, 1);
+  rr(ctx, x, y, w, hph, hph / 2); ctx.fillStyle = "rgba(8,16,30,0.5)"; ctx.fill();
+  if (hk > 0) { rr(ctx, x, y, w * hk, hph, hph / 2); ctx.fillStyle = hk > 0.5 ? PAL.good : hk > 0.25 ? PAL.gold : PAL.danger; ctx.fill(); }
+  if (RARITY[def.rarity].regen) drawRepairBadge(x, y + hph / 2, 6 * view.ui);
+  y += hph + 6 * view.ui;
+  const btns = towerPanelButtons(tw), n = btns.length, gap = 5 * view.ui;
+  const bh = Math.min(46, (c.cardsBottom - y - gap * (n - 1)) / n);
+  for (let i = 0; i < n; i++) {
+    const b = btns[i];
+    btn(b.id, x, y + i * (bh + gap), w, bh, b.label, { color: b.color, textColor: b.tc, disabled: b.dis, fs: F(12) });
+  }
+}
+/* Карточка пушки: иконка, название, описание (если влезает) и цена. Общая для нижнего дока и колонки. */
+function drawCannonCard(type, x, y, bw, bh) {
     const def = TOWERS[type];
-    const x = pad + i * (bw + pad), y = dy + pad;
     const cost = def.levels[0].cost;
     const afford = G.gold >= cost;
     const sel = G.selType === type;
@@ -3530,12 +3658,20 @@ function drawDock() {
     text(String(cost), x + bw * 0.44 + 23 * view.ui, y + bh * 0.78, F(13), afford ? PAL.gold : PAL.danger, "left");
     ctx.globalAlpha = 1;
     G.hot.push({ id: "tw_" + type, x, y, w: bw, h: bh, disabled: false });
-  }
+}
+/* Кнопки панели выбранной башни — общие для нижнего дока и правой колонки. */
+function towerPanelButtons(tw) {
+  const def = TOWERS[tw.type], val = Math.floor(tw.invested * 0.6), btns = [];
+  if (tw.level < 2) { const uc = def.levels[tw.level + 1].cost; btns.push({ id: "upg", label: L("upgrade") + " " + uc, color: G.gold >= uc ? PAL.good : "#3a4763", tc: "#0e1626", dis: G.gold < uc }); }
+  else btns.push({ id: "upg", label: L("max"), color: PAL.panel2, tc: PAL.gold, dis: true });
+  if (tw.hp < tw.maxHp) { const rc = repairCost(tw); btns.push({ id: "repair", label: L("repair") + " " + rc, color: G.gold >= rc ? PAL.blue : "#3a4763", tc: PAL.text, dis: G.gold < rc }); }
+  btns.push({ id: "sell", label: L("sell") + " +" + val, color: PAL.danger, tc: "#0e1626" });
+  btns.push({ id: "closepanel", label: L("close"), color: PAL.panel2, tc: PAL.text });
+  return btns;
 }
 function drawTowerPanel(dy, dh) {
   const tw = G.selTower, def = TOWERS[tw.type], st = def.levels[tw.level];
   const pad = 10 * view.ui;
-  const val = Math.floor(tw.invested * 0.6);
   const row = dy + dh * 0.26;
   // иконка пушки и название с уровнем
   drawTowerIcon(ctx, pad + dh * 0.2, row, dh * 0.34, tw.type);
@@ -3562,12 +3698,7 @@ function drawTowerPanel(dy, dh) {
   text(L("durab") + " " + Math.ceil(tw.hp) + "/" + tw.maxHp, sx + hpw + 8 * view.ui, hpy + hph / 2, F(10), PAL.dim, "left", "middle");
   if (RARITY[def.rarity].regen) drawRepairBadge(sx, hpy + hph / 2, 7 * view.ui);
   // ряд кнопок (3 или 4)
-  const btns = [];
-  if (tw.level < 2) { const uc = def.levels[tw.level + 1].cost; btns.push({ id: "upg", label: L("upgrade") + " " + uc, color: G.gold >= uc ? PAL.good : "#3a4763", tc: "#0e1626", dis: G.gold < uc }); }
-  else btns.push({ id: "upg", label: L("max"), color: PAL.panel2, tc: PAL.gold, dis: true });
-  if (tw.hp < tw.maxHp) { const rc = repairCost(tw); btns.push({ id: "repair", label: L("repair") + " " + rc, color: G.gold >= rc ? PAL.blue : "#3a4763", tc: PAL.text, dis: G.gold < rc }); }
-  btns.push({ id: "sell", label: L("sell") + " +" + val, color: PAL.danger, tc: "#0e1626" });
-  btns.push({ id: "closepanel", label: L("close"), color: PAL.panel2, tc: PAL.text });
+  const btns = towerPanelButtons(tw);
   const n = btns.length, gap = 6 * view.ui;
   const bw = (view.w - pad * 2 - gap * (n - 1)) / n, bh = dh * 0.46, by = dy + dh * 0.5;
   for (let i = 0; i < n; i++) {
@@ -3582,12 +3713,13 @@ function drawTutorial() {
   const y = b.y + b.h * 0.22;
   const pw = Math.min(320 * view.ui, b.w - 16 * view.ui);
   ctx.save();
-  rr(ctx, view.w / 2 - pw / 2, y - 42 * view.ui, pw, 84 * view.ui, 14 * view.ui);
+  const bcx = b.x + b.w / 2;
+  rr(ctx, bcx - pw / 2, y - 42 * view.ui, pw, 84 * view.ui, 14 * view.ui);
   ctx.fillStyle = "rgba(11,19,34,0.9)"; ctx.fill();
   ctx.strokeStyle = PAL.good; ctx.lineWidth = 2 * view.ui; ctx.stroke();
-  text(L("howToPlay"), view.w / 2, y - 22 * view.ui, F(16), PAL.gold);
-  text(L("tut1"), view.w / 2, y, F(13), PAL.text);
-  text(L("tut2"), view.w / 2, y + 18 * view.ui, F(13), PAL.text);
+  text(L("howToPlay"), bcx, y - 22 * view.ui, F(16), PAL.gold);
+  text(L("tut1"), bcx, y, F(13), PAL.text);
+  text(L("tut2"), bcx, y + 18 * view.ui, F(13), PAL.text);
   ctx.restore();
 }
 
