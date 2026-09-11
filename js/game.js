@@ -94,7 +94,7 @@ const TXT = {
     rotate1: "Пожалуйста, переверните", rotate2: "устройство для игры"
   },
   en: {
-    title: "Башни против Мемов", play: "Play", book: "Meme Book", squad: "Squad", shop: "Shop",
+    title: "Towers vs Memes", play: "Play", book: "Meme Book", squad: "Squad", shop: "Shop",
     settings: "Settings", record: "BEST", coins: "COINS", sound: "Sound", music: "Music", lang: "Language",
     on: "on", off: "off", back: "Back", levelSelect: "Select Level", endless: "Endless Mode",
     wave: "Wave", level: "Level", score: "Score", combo: "Combo", toBattle: "Fight!", startEarlier: "Start early",
