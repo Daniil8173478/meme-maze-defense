@@ -444,13 +444,15 @@ function genEndlessWave(n) {
     spawns.push({ type: basics[(n * 2 + t * 3) % basics.length], count: Math.max(3, Math.round(count / nt)),
       gap: Math.max(0.2, 0.7 - n * 0.02), delay: t * 0.3 });
   }
-  // спецмонстры вводятся постепенно
-  if (n >= 3) spawns.push({ type: "healer", count: 1 + Math.floor(n / 6), gap: 2, delay: 0.5 });
-  if (n >= 4) spawns.push({ type: "booster", count: 1 + Math.floor(n / 7), gap: 2, delay: 1 });
+  // первая волна вдвое меньше и реже: игрок только расставил пушки, терять жизни сразу обидно
+  if (n === 0) for (const sp of spawns) { sp.count = Math.max(2, Math.round(sp.count * 0.5)); sp.gap *= 1.6; }
+  // спецмонстры вводятся постепенно: лекарь с 5-й волны, ускоритель с 6-й, босс с 7-й
+  if (n >= 4) spawns.push({ type: "healer", count: 1 + Math.floor(n / 6), gap: 2, delay: 0.5 });
+  if (n >= 5) spawns.push({ type: "booster", count: 1 + Math.floor(n / 7), gap: 2, delay: 1 });
   // Черемш не больше трёх и идут они с шагом 3 с: при прежних 1+n/5 с шагом 1.6 к 25-й волне
   // их было пять подряд, зоны атаки накладывались и урон складывался — башня падала за секунды
   if (n >= 5) spawns.push({ type: "breaker", count: Math.min(3, 1 + Math.floor(n / 8)), gap: 3.0, delay: 1.5 });
-  if (n >= 3 && n % 3 === 0) spawns.push({ type: "boss", count: 1 + Math.floor(n / 6), gap: 1.5, delay: 1 });
+  if (n >= 5 && n % 3 === 0) spawns.push({ type: "boss", count: 1 + Math.floor(n / 6), gap: 1.5, delay: 1 });
   return { spawns };
 }
 /* Рост здоровья монстров. На уровнях кривая мягче (0.15): с 0.18 ребёнок на 8-10
@@ -514,7 +516,9 @@ function startNextWave() {
   Sound.play("wave");
   addText(view.w / 2, view.board.y + 30 * view.ui, L("wave") + " " + (G.waveIndex + 1), PAL.gold, F(24), 1.4);
 }
-function currentGL() { return G.mode === "level" ? G.level : 8 + G.waveIndex * 1.4; }
+/* Сила волны бесконечного режима. Раньше старт был как у 8-го уровня (8 + 1.4n) и новичок
+   погибал на 4-6 волне; теперь разгон с уровня 1, а к 20-й волне сила та же, что была. */
+function currentGL() { return G.mode === "level" ? G.level : 1 + G.waveIndex * 1.75; }
 function spawnEnemy(type) {
   const base = ENEMIES[type];
   const sc = scaleFor(currentGL());

@@ -37,7 +37,7 @@ const Sound = (function () {
       master.connect(clipper);
       // отдельные шины: эффекты и музыка балансируются независимо
       sfxBus = ctx.createGain(); sfxBus.gain.value = 1;
-      musicBus = ctx.createGain(); musicBus.gain.value = 0.68;
+      musicBus = ctx.createGain(); musicBus.gain.value = 0.73;
       sfxBus.connect(master); musicBus.connect(master);
       // буфер белого шума для взрывов
       const len = Math.floor(ctx.sampleRate * 0.4);
@@ -213,7 +213,10 @@ const Sound = (function () {
     try { f(arg); } finally { trim = 1; }
   }
 
-  /* ---- Мягкая фоновая музыка (петля из осцилляторов) ---- */
+  /* ---- Фоновая музыка: щипковый бас, «маримба» и тёплая подложка ----
+     Без шумовых ударных: шипящий «счётчик» на слабую долю звучал как
+     электрические щелчки, ритм теперь держит басовая линия. У каждого голоса
+     плавная атака и затухание почти до нуля раньше остановки — иначе щёлкает. */
   const BASS = [110, 110, 146.83, 130.81]; // A2 A2 D3 C3
   const ARP  = [
     [220, 261.63, 329.63], [220, 261.63, 329.63],
@@ -222,56 +225,45 @@ const Sound = (function () {
   const PAD = [
     [220, 329.63], [220, 329.63], [293.66, 440], [261.63, 392]
   ];
+  /* Один музыкальный голос: осциллятор, огибающая и при желании мягкий фильтр,
+     который закрывается вместе с затуханием — так звучит щипок, а не писк. */
+  function voice(type, freq, time, peak, atk, dec, cutFrom, cutTo) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, time);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.linearRampToValueAtTime(peak, time + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + atk + dec);
+    let out = g;
+    if (cutFrom) {
+      const f = ctx.createBiquadFilter();
+      f.type = "lowpass";
+      f.Q.setValueAtTime(0.7, time);
+      f.frequency.setValueAtTime(cutFrom, time);
+      f.frequency.exponentialRampToValueAtTime(cutTo || cutFrom, time + atk + dec);
+      g.connect(f); out = f;
+    }
+    o.connect(g); out.connect(musicBus);
+    o.start(time); o.stop(time + atk + dec + 0.06);
+  }
   function musicStep(time) {
     if (!ensure()) return;
-    const bar = Math.floor(mStep / 4) % 4;
-    // бас через фильтр — мягкий, без песка
-    const bassOsc = ctx.createOscillator(), bg = ctx.createGain(), bf = ctx.createBiquadFilter();
-    bf.type = "lowpass"; bf.frequency.setValueAtTime(420, time);
-    bassOsc.type = "triangle";
-    bassOsc.frequency.value = BASS[bar];
-    bg.gain.setValueAtTime(0.0001, time);
-    bg.gain.linearRampToValueAtTime(0.055, time + 0.02);
-    bg.gain.exponentialRampToValueAtTime(0.0001, time + 0.45);
-    bassOsc.connect(bg); bg.connect(bf); bf.connect(musicBus);
-    bassOsc.start(time); bassOsc.stop(time + 0.5);
-    // арпеджио двумя слегка расстроенными голосами — звучит шире
-    const notes = ARP[bar];
-    const n = notes[mStep % notes.length];
-    for (const det of [1, 1.004]) {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = "sine";
-      o.frequency.value = n * det;
-      g.gain.setValueAtTime(0.0001, time);
-      g.gain.linearRampToValueAtTime(det === 1 ? 0.035 : 0.018, time + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, time + 0.28);
-      o.connect(g); g.connect(musicBus);
-      o.start(time); o.stop(time + 0.32);
+    const bar = Math.floor(mStep / 4) % 4, beat = mStep % 4, root = BASS[bar];
+    // бас: основной тон с тёплым суббасом на сильную долю, октава на третью, тихая квинта перед сменой аккорда
+    if (beat === 0) {
+      voice("triangle", root, time, 0.075, 0.012, 0.5, 900, 260);
+      voice("sine", root / 2, time, 0.045, 0.02, 0.45);
+    } else if (beat === 2) {
+      voice("triangle", root * 2, time, 0.04, 0.01, 0.26, 1200, 380);
+    } else if (beat === 3) {
+      voice("triangle", root * 1.5, time, 0.026, 0.01, 0.2, 1000, 380);
     }
-    // тихая подложка в начале такта
-    if (mStep % 4 === 0) {
-      for (const f of PAD[bar]) {
-        const o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
-        lp.type = "lowpass"; lp.frequency.setValueAtTime(1200, time);
-        o.type = "triangle"; o.frequency.value = f;
-        g.gain.setValueAtTime(0.0001, time);
-        g.gain.linearRampToValueAtTime(0.014, time + 0.25);
-        g.gain.exponentialRampToValueAtTime(0.0001, time + 1.15);
-        o.connect(g); g.connect(lp); lp.connect(musicBus);
-        o.start(time); o.stop(time + 1.2);
-      }
-    }
-    // лёгкий счётчик на слабую долю
-    if (mStep % 2 === 1 && noiseBuf) {
-      const src = ctx.createBufferSource(), hg = ctx.createGain(), hf = ctx.createBiquadFilter();
-      src.buffer = noiseBuf;
-      hf.type = "highpass"; hf.frequency.setValueAtTime(6500, time);
-      hg.gain.setValueAtTime(0.0001, time);
-      hg.gain.exponentialRampToValueAtTime(0.02, time + 0.005);
-      hg.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
-      src.connect(hf); hf.connect(hg); hg.connect(musicBus);
-      src.start(time); src.stop(time + 0.08);
-    }
+    // «маримба»: чистый тон и короткий призвук двумя октавами выше — удар палочкой
+    const n = ARP[bar][mStep % ARP[bar].length];
+    voice("sine", n, time, 0.045, 0.006, 0.34);
+    voice("sine", n * 4, time, 0.006, 0.004, 0.05);
+    // тёплая подложка в начале такта
+    if (beat === 0) for (const f of PAD[bar]) voice("triangle", f, time, 0.013, 0.3, 0.9, 900, 650);
     mStep++;
   }
   function scheduler() {
