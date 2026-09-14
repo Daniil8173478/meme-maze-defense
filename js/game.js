@@ -21,17 +21,20 @@ function rr(g, x, y, w, h, r) {
   g.closePath();
 }
 /* Осветление/затемнение цвета (f>1 светлее, f<1 темнее) с кэшем. */
-const _shadeCache = {};
+/* Кэш двухуровневый (цвет → множитель): shade зовут сотни раз за кадр, и склейка
+   строки-ключа на каждый вызов стоила дороже самого поиска. */
+const _shadeCache = new Map();
 function shade(hex, f) {
-  const key = hex + "|" + f;
-  const hit = _shadeCache[key];
-  if (hit) return hit;
+  let byF = _shadeCache.get(hex);
+  if (byF === undefined) { byF = new Map(); _shadeCache.set(hex, byF); }
+  const hit = byF.get(f);
+  if (hit !== undefined) return hit;
   let c = hex.charAt(0) === "#" ? hex.slice(1) : hex;
   if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
   const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16);
   const cl = v => (v < 0 ? 0 : v > 255 ? 255 : v | 0);
   const out = "rgb(" + cl(r * f) + "," + cl(g * f) + "," + cl(b * f) + ")";
-  _shadeCache[key] = out; return out;
+  byF.set(f, out); return out;
 }
 function radial(g, x0, y0, r0, x1, y1, r1, stops) {
   const grd = g.createRadialGradient(x0, y0, r0, x1, y1, r1);
@@ -1510,11 +1513,8 @@ function renderMain() {
   if (view.rotate) { drawRotateStub(); return; }
   // экран ящика сам заливает весь фон — небо и холмы под ним рисовать незачем
   if (G.state === "crate") { drawCrate(); return; }
-  // фон
-  const bg = ctx.createLinearGradient(0, 0, 0, view.h);
-  bg.addColorStop(0, "#27507f"); bg.addColorStop(0.5, "#1f4560"); bg.addColorStop(1, "#1a3d44");
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, view.w, view.h);
-  drawBackdrop(G.clock || performance.now() / 1000);
+  // фон; в бою поле, верхняя строка и панель пушек непрозрачны — под ними он не рисуется
+  drawScenery(G.clock || performance.now() / 1000, MENU_SCREENS[G.state] ? null : fieldBackdropRects());
 
   if (G.state === "menu") { drawMenu(); return; }
   if (G.state === "levels") { drawLevels(); return; }
@@ -1552,10 +1552,7 @@ function renderMain() {
    направление, ниже — просьба. Бой и рулетка под заглушкой стоят (см. loop). */
 function drawRotateStub() {
   const w = view.w, h = view.h, u = view.ui, now = performance.now();
-  const bg = ctx.createLinearGradient(0, 0, 0, h);
-  bg.addColorStop(0, "#27507f"); bg.addColorStop(0.5, "#1f4560"); bg.addColorStop(1, "#1a3d44");
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
-  drawBackdrop(now / 1000);
+  drawScenery(now / 1000, null);
   const s = Math.min(w * 0.36, h * 0.22), cxp = w / 2, cyp = h * 0.4;
   // цикл 2.6 с: стоит → плавно ложится набок → лежит → растворяется
   const t = (now / 2600) % 1, k = clamp((t - 0.2) / 0.35, 0, 1);
@@ -1603,15 +1600,18 @@ function drawRotateStub() {
 /* Окружение вокруг поля: тёплое свечение, дальние холмы, облака и мошкара.
    Всё крупное и медленное — фон оживает, но не спорит с игрой. */
 function drawBackdrop(t) {
-  const b = view.board;
-  const bx = b.w ? b.x + b.w / 2 : view.w / 2, by = b.h ? b.y + b.h / 2 : view.h * 0.5;
+  paintBackdropStatic(ctx);
+  drawBackdropLive(t);
+}
+/* Неподвижная часть окружения: солнце и дальние холмы с рощами. g — контекст с тем же масштабом. */
+function paintBackdropStatic(g) {
   // солнце в углу — источник тёплого света на сцене
   const sx = view.w * 0.88, sy = view.h * 0.12;
-  const sun = ctx.createRadialGradient(sx, sy, 0, sx, sy, Math.min(view.w, view.h) * 0.45);
+  const sun = g.createRadialGradient(sx, sy, 0, sx, sy, Math.min(view.w, view.h) * 0.45);
   sun.addColorStop(0, "rgba(255,231,160,0.38)");
   sun.addColorStop(0.35, "rgba(255,208,135,0.13)");
   sun.addColorStop(1, "rgba(255,200,120,0)");
-  ctx.fillStyle = sun; ctx.fillRect(0, 0, view.w, view.h);
+  g.fillStyle = sun; g.fillRect(0, 0, view.w, view.h);
   // дальние холмы с подсвеченным гребнем и рощами по склону
   const hy = view.h * 0.42;
   for (let layer = 0; layer < 2; layer++) {
@@ -1622,16 +1622,16 @@ function drawBackdrop(t) {
       const x = view.w * i / steps;
       crest.push({ x: x, y: base + Math.sin(i * 0.9 + layer * 2.1) * amp + Math.sin(i * 2.3 + layer) * amp * 0.4 });
     }
-    ctx.fillStyle = layer ? "rgba(58,126,92,0.66)" : "rgba(40,92,86,0.52)";
-    ctx.beginPath(); ctx.moveTo(0, view.h); ctx.lineTo(crest[0].x, crest[0].y);
-    for (const pt of crest) ctx.lineTo(pt.x, pt.y);
-    ctx.lineTo(view.w, view.h); ctx.closePath(); ctx.fill();
+    g.fillStyle = layer ? "rgba(58,126,92,0.66)" : "rgba(40,92,86,0.52)";
+    g.beginPath(); g.moveTo(0, view.h); g.lineTo(crest[0].x, crest[0].y);
+    for (const pt of crest) g.lineTo(pt.x, pt.y);
+    g.lineTo(view.w, view.h); g.closePath(); g.fill();
     // подсветка гребня
-    ctx.strokeStyle = layer ? "rgba(150,215,160,0.18)" : "rgba(140,200,170,0.13)";
-    ctx.lineWidth = Math.max(1, 2 * view.ui); ctx.lineJoin = "round";
-    ctx.beginPath(); ctx.moveTo(crest[0].x, crest[0].y);
-    for (const pt of crest) ctx.lineTo(pt.x, pt.y);
-    ctx.stroke();
+    g.strokeStyle = layer ? "rgba(150,215,160,0.18)" : "rgba(140,200,170,0.13)";
+    g.lineWidth = Math.max(1, 2 * view.ui); g.lineJoin = "round";
+    g.beginPath(); g.moveTo(crest[0].x, crest[0].y);
+    for (const pt of crest) g.lineTo(pt.x, pt.y);
+    g.stroke();
     // деревья по гребню — вид обрамляется рощами, а поле остаётся в центре
     const trees = 26, tone = layer ? "rgba(32,86,62,0.72)" : "rgba(26,66,64,0.58)";
     for (let i = 0; i < trees; i++) {
@@ -1640,16 +1640,22 @@ function drawBackdrop(t) {
       const f = (tx - crest[seg].x) / (crest[seg + 1].x - crest[seg].x || 1);
       const ty = lerp(crest[seg].y, crest[seg + 1].y, f) + view.h * 0.004;
       const th = view.h * (0.035 + ((i * 7) % 5) * 0.004) * (layer ? 1 : 0.8);
-      ctx.fillStyle = tone;
-      ctx.beginPath(); ctx.moveTo(tx, ty - th * 1.5);
-      ctx.lineTo(tx + th * 0.42, ty + th * 0.1);
-      ctx.lineTo(tx - th * 0.42, ty + th * 0.1);
-      ctx.closePath(); ctx.fill();
+      g.fillStyle = tone;
+      g.beginPath(); g.moveTo(tx, ty - th * 1.5);
+      g.lineTo(tx + th * 0.42, ty + th * 0.1);
+      g.lineTo(tx - th * 0.42, ty + th * 0.1);
+      g.closePath(); g.fill();
       if ((i * 3) % 4 === 0) {
-        ctx.beginPath(); ctx.ellipse(tx + th * 0.7, ty, th * 0.38, th * 0.45, 0, 0, TAU); ctx.fill();
+        g.beginPath(); g.ellipse(tx + th * 0.7, ty, th * 0.38, th * 0.45, 0, 0, TAU); g.fill();
       }
     }
   }
+}
+/* Живая часть окружения: облака плывут, под полем тёплое свечение, мошкара кружит.
+   Возвращает последний цвет заливки — его оставляла после себя прежняя отрисовка. */
+function drawBackdropLive(t, visible) {
+  const b = view.board, d = view.dpr;
+  const bx = b.w ? b.x + b.w / 2 : view.w / 2, by = b.h ? b.y + b.h / 2 : view.h * 0.5;
   // облака: каждый ком — мягкое пятно с растушёванным краем, иначе на тёмном небе
   // они читаются как серые блины
   for (let i = 0; i < 4; i++) {
@@ -1659,6 +1665,8 @@ function drawBackdrop(t) {
     const a0 = 0.07 + (i % 2) * 0.025;
     for (const pt of [[0, 0, 1], [0.3, -0.16, 0.8], [0.6, 0.04, 0.88], [0.86, -0.07, 0.62]]) {
       const px = x + w * pt[0], py = y + w * pt[1], rad = w * 0.3 * pt[2];
+      // ком целиком под полем или панелями — его всё равно закрасят сверху
+      if (visible && !rectsHit(visible, (px - rad) * d, (py - rad * 0.52) * d, (px + rad) * d, (py + rad * 0.52) * d)) continue;
       const puff = ctx.createRadialGradient(px, py - rad * 0.15, 0, px, py, rad);
       puff.addColorStop(0, "rgba(255,255,255," + a0.toFixed(3) + ")");
       puff.addColorStop(0.55, "rgba(255,255,255," + (a0 * 0.6).toFixed(3) + ")");
@@ -1674,16 +1682,132 @@ function drawBackdrop(t) {
   glow.addColorStop(0, "rgba(120,190,150,0.22)");
   glow.addColorStop(0.5, "rgba(90,160,150,0.10)");
   glow.addColorStop(1, "rgba(10,20,35,0)");
-  ctx.fillStyle = glow; ctx.fillRect(0, 0, view.w, view.h);
+  ctx.fillStyle = glow;
+  // по видимым кускам поодиночке: клип из одного прямоугольника растеризуется ровно так же,
+  // как без клипа, а клип сложной формы — уже нет (проверено попиксельно)
+  if (visible) for (const r of visible) { ctx.save(); clipDevice([r]); ctx.fillRect(0, 0, view.w, view.h); ctx.restore(); }
+  else ctx.fillRect(0, 0, view.w, view.h);
   // мошкара в тёплом свете
+  let fill = "";
   for (let i = 0; i < 14; i++) {
     const seed = i * 1.7;
     const x = view.w * (0.03 + ((i * 7) % 20) / 20 * 0.94) + Math.sin(t * 0.35 + seed) * view.w * 0.03;
     const y = view.h * (0.1 + ((i * 11) % 17) / 17 * 0.82) + Math.cos(t * 0.42 + seed * 1.3) * view.h * 0.035;
     const a = 0.14 + Math.abs(Math.sin(t * 0.8 + seed)) * 0.22;
-    ctx.fillStyle = "rgba(255,232,160," + a.toFixed(3) + ")";
-    ctx.beginPath(); ctx.arc(x, y, Math.max(1, view.ui * (1.4 + (i % 3) * 0.6)), 0, TAU); ctx.fill();
+    const rad = Math.max(1, view.ui * (1.4 + (i % 3) * 0.6));
+    fill = "rgba(255,232,160," + a.toFixed(3) + ")";
+    if (visible && !rectsHit(visible, (x - rad) * d, (y - rad) * d, (x + rad) * d, (y + rad) * d)) continue;
+    ctx.fillStyle = fill;
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU); ctx.fill();
   }
+  // цвет последней мошки оставался в контексте и раньше — даже если саму её не рисуем
+  if (visible) ctx.fillStyle = fill;
+  return fill;
+}
+
+/* ---------- Фон кадра ----------
+   Небо, солнце и холмы от кадра к кадру не меняются: они рисуются один раз в отдельный холст
+   размером с игровой и дальше копируются одной картинкой. Облака, свечение и мошкара рисуются
+   вживую поверх. Кэш сбрасывается при смене размера холста и стиля концов линий — от него
+   зависит крайний пиксель гребня холмов. */
+const SceneryArt = { canvas: null, key: "" };
+const MENU_SCREENS = { menu: true, levels: true, shop: true, squad: true, settings: true, book: true };
+function paintSky(g) {
+  const bg = g.createLinearGradient(0, 0, 0, view.h);
+  bg.addColorStop(0, "#27507f"); bg.addColorStop(0.5, "#1f4560"); bg.addColorStop(1, "#1a3d44");
+  g.fillStyle = bg; g.fillRect(0, 0, view.w, view.h);
+  paintBackdropStatic(g);
+}
+function sceneryArt() {
+  const key = canvas.width + "x" + canvas.height + "|" + view.w + "x" + view.h + "|" + view.dpr + "|" + ctx.lineCap;
+  if (SceneryArt.canvas && SceneryArt.key === key) return SceneryArt.canvas;
+  const cv = SceneryArt.canvas || document.createElement("canvas");
+  cv.width = canvas.width; cv.height = canvas.height;
+  const g = cv.getContext("2d");
+  g.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  g.lineCap = ctx.lineCap;
+  paintSky(g);
+  SceneryArt.canvas = cv; SceneryArt.key = key;
+  return cv;
+}
+/* Состояние контекста, которое оставляла после себя прямая отрисовка неба и холмов. */
+function skyTailState() {
+  ctx.fillStyle = "rgba(32,86,62,0.72)"; ctx.strokeStyle = "rgba(150,215,160,0.18)";
+  ctx.lineWidth = Math.max(1, 2 * view.ui); ctx.lineJoin = "round";
+}
+/* visible — где фон виден: прямоугольники в пикселях холста; null — весь экран. */
+function drawScenery(t, visible) {
+  const W = canvas.width, H = canvas.height, pw = view.w * view.dpr, ph = view.h * view.dpr;
+  const whole = pw === W && ph === H;
+  // при дробном масштабе небо покрывает крайний ряд и столбец не целиком — там просвечивает
+  // прошлый кадр, поэтому кромку рисуем как раньше, а из кэша копируем всё остальное
+  const fw = whole ? W : Math.max(0, Math.min(W, Math.floor(pw) - 1));
+  const fh = whole ? H : Math.max(0, Math.min(H, Math.floor(ph) - 1));
+  const art = sceneryArt();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  for (const r of visibleParts([[0, 0, fw, fh]], visible)) {
+    ctx.drawImage(art, r[0], r[1], r[2] - r[0], r[3] - r[1], r[0], r[1], r[2] - r[0], r[3] - r[1]);
+  }
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  if (!whole) {
+    for (const r of visibleParts([[fw, 0, W, H], [0, fh, fw, H]], visible)) { ctx.save(); clipDevice([r]); paintSky(ctx); ctx.restore(); }
+  }
+  skyTailState();
+  drawBackdropLive(t, visible);
+}
+/* Пересечение двух наборов прямоугольников; visible === null — берём как есть. */
+function visibleParts(parts, visible) {
+  if (!visible) return parts;
+  const out = [];
+  for (const p of parts) for (const v of visible) {
+    const x0 = Math.max(p[0], v[0]), y0 = Math.max(p[1], v[1]), x1 = Math.min(p[2], v[2]), y1 = Math.min(p[3], v[3]);
+    if (x1 > x0 && y1 > y0) out.push([x0, y0, x1, y1]);
+  }
+  return out;
+}
+function rectsHit(rects, x0, y0, x1, y1) {
+  for (const r of rects) if (r[0] < x1 && r[2] > x0 && r[1] < y1 && r[3] > y0) return true;
+  return false;
+}
+/* Клип по прямоугольникам [x0, y0, x1, y1) в пикселях холста. Границы целые — клип без полупрозрачной кромки. */
+function clipDevice(rects) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.beginPath();
+  for (const r of rects) if (r[2] > r[0] && r[3] > r[1]) ctx.rect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
+  ctx.clip();
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+}
+function subtractRects(rects, cut) {
+  if (cut[2] <= cut[0] || cut[3] <= cut[1]) return rects;
+  const out = [];
+  for (const r of rects) {
+    if (cut[0] >= r[2] || cut[2] <= r[0] || cut[1] >= r[3] || cut[3] <= r[1]) { out.push(r); continue; }
+    if (cut[1] > r[1]) out.push([r[0], r[1], r[2], cut[1]]);
+    if (cut[3] < r[3]) out.push([r[0], cut[3], r[2], r[3]]);
+    const y0 = Math.max(r[1], cut[1]), y1 = Math.min(r[3], cut[3]);
+    if (cut[0] > r[0]) out.push([r[0], y0, cut[0], y1]);
+    if (cut[2] < r[2]) out.push([cut[2], y0, r[2], y1]);
+  }
+  return out;
+}
+/* Верхняя строка и панель пушек в бою — непрозрачные заливки поверх всего, что под ними.
+   Пиксели холста, с запасом внутрь: дробные края панелей остаются нетронутыми. */
+function panelRects() {
+  const d = view.dpr, rx = Math.floor(view.w * d) - 1, by = Math.floor(view.h * d) - 1;
+  const hudR = view.side ? Math.floor((view.w - view.dockW) * d) - 1 : rx;
+  return [
+    [0, 0, hudR, Math.floor(view.hudH * d) - 1],
+    view.side ? [Math.ceil((view.w - view.dockW) * d) + 1, 0, rx, by] : [0, Math.ceil((view.h - view.dockH) * d) + 1, rx, by]
+  ];
+}
+/* Где в бою виден фон: всё, кроме панелей и поля. Кромка поля полупрозрачна, поэтому оно
+   вырезается с запасом, а на время тряски, когда поле сдвигается, запас растёт. */
+function fieldBackdropRects() {
+  const d = view.dpr, b = view.board;
+  const m = 2 + (G.shake > 0 ? Math.ceil(G.shake * 8 * view.ui * d) : 0);
+  let rects = [[0, 0, canvas.width, canvas.height]];
+  for (const cut of panelRects()) rects = subtractRects(rects, cut);
+  return subtractRects(rects, [Math.ceil(b.x * d) + m, Math.ceil(b.y * d) + m, Math.floor((b.x + b.w) * d) - m, Math.floor((b.y + b.h) * d) - m]);
 }
 
 /* ---------- Текст ---------- */
@@ -1698,10 +1822,24 @@ function textShadow(str, x, y, size, color, align, baseline) {
   ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillText(str, x + 2, y + 2);
   ctx.fillStyle = color; ctx.fillText(str, x, y);
 }
-/* Ширина строки при заданном кегле. */
+/* Ширина строки при заданном кегле. Одни и те же подписи меряются каждый кадр (карточки
+   пушек, счёт, кнопки), а measureText дорогой — ширины запоминаются. Шрифт выставляется
+   как раньше: код после замера на него рассчитывает. */
+const _textWCache = new Map();
 function textW(str, size) {
-  ctx.font = "bold " + size + "px \"Trebuchet MS\", \"Segoe UI\", sans-serif";
-  return ctx.measureText(str).width;
+  let rec = _textWCache.get(size);
+  if (rec === undefined) {
+    rec = { font: "bold " + size + "px \"Trebuchet MS\", \"Segoe UI\", sans-serif", widths: new Map() };
+    _textWCache.set(size, rec);
+  }
+  ctx.font = rec.font;
+  let w = rec.widths.get(str);
+  if (w === undefined) {
+    if (rec.widths.size > 500) rec.widths.clear(); // счёт растёт — старые строки больше не понадобятся
+    w = ctx.measureText(str).width;
+    rec.widths.set(str, w);
+  }
+  return w;
 }
 /* Строка, ужатая под maxW: сперва мельче кегль, затем обрезка многоточием. */
 function textClip(str, x, y, maxW, size, color, align) {
@@ -3524,11 +3662,35 @@ function drawToast() {
   }
   ctx.globalAlpha = 1;
 }
+/* Виньетка ложится на поле, но под верхнюю строку и панель пушек — там её всё равно не видно,
+   а внутри начального круга её градиент прозрачен и ничего не меняет. Эти области пропускаются.
+   Заливка идёт по кускам поодиночке: клип из одного прямоугольника растеризуется ровно так же,
+   как без клипа, а клип сложной формы — уже нет. Градиент и раскладка кусков живут до смены раскладки. */
+const VignetteArt = { key: "", grad: null, rects: null };
 function drawVignette() {
-  const g = ctx.createRadialGradient(view.w / 2, view.h * 0.46, Math.min(view.w, view.h) * 0.34, view.w / 2, view.h / 2, Math.max(view.w, view.h) * 0.72);
-  g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(1, "rgba(0,0,0,0.17)");
-  ctx.fillStyle = g; ctx.fillRect(0, 0, view.w, view.h);
+  const key = canvas.width + "x" + canvas.height + "|" + view.w + "x" + view.h + "|" + view.dpr + "|" +
+    view.side + "|" + view.hudH + "|" + view.dockH + "|" + view.dockW;
+  if (VignetteArt.key !== key) {
+    const g = ctx.createRadialGradient(view.w / 2, view.h * 0.46, Math.min(view.w, view.h) * 0.34, view.w / 2, view.h / 2, Math.max(view.w, view.h) * 0.72);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(0,0,0,0.17)");
+    VignetteArt.grad = g; VignetteArt.rects = vignetteRects(); VignetteArt.key = key;
+  }
+  ctx.fillStyle = VignetteArt.grad;
+  for (const r of VignetteArt.rects) { ctx.save(); clipDevice([r]); ctx.fillRect(0, 0, view.w, view.h); ctx.restore(); }
+  ctx.fillStyle = VignetteArt.grad;
+}
+function vignetteRects() {
+  const d = view.dpr;
+  let rects = [[0, 0, canvas.width, canvas.height]];
+  for (const cut of panelRects()) rects = subtractRects(rects, cut);
+  // вписанный в круг квадрат: кусков остаётся немного, а это почти две трети площади круга
+  const R = Math.min(view.w, view.h) * 0.34 * d - 2, ccx = view.w / 2 * d, ccy = view.h * 0.46 * d;
+  if (R > 8) {
+    const half = R * Math.SQRT1_2;
+    rects = subtractRects(rects, [Math.ceil(ccx - half), Math.ceil(ccy - half), Math.floor(ccx + half), Math.floor(ccy + half)]);
+  }
+  return rects;
 }
 
 /* ---------- Иконки HUD ---------- */
